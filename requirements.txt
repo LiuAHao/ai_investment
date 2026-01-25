@@ -1,0 +1,25 @@
+# 新闻采集与解析
+requests>=2.31.0
+lxml>=4.9.0
+beautifulsoup4>=4.12.0
+python-dateutil>=2.8.0
+feedparser>=6.0.0
+sqlalchemy>=2.0.0
+pymysql>=1.1.0
+
+# 日志处理
+colorlog>=6.7.0
+
+# 数据处理
+pandas>=2.0.0
+numpy>=1.24.0
+
+# 可选：异步支持
+aiohttp>=3.8.0
+asyncio-mqtt>=0.13.0
+
+# 股票数据
+akshare>=1.0.0
+
+# 大模型调用
+openai>=1.0.0

@@ -1,0 +1,48 @@
+## OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+## Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+*.log
+.env
+.venv/
+venv/
+ENV/
+env/
+
+## Node / Frontend
+node_modules/
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+dist/
+build/
+.cache/
+.parcel-cache/
+.vite/
+
+## VS Code
+.vscode/
+
+## Misc
+*.local
+*.tmp
+*.swp
+*.swo
