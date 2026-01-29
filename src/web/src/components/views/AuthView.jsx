@@ -1,20 +1,39 @@
 import React, { useState } from 'react';
 import { TrendingUp, Mail, Lock, User, ArrowRight, Loader2, ArrowLeft } from 'lucide-react';
+import { loginUser, registerUser } from '../../services/apiClient';
 
-const AuthView = ({ viewState, setViewState }) => {
+const AuthView = ({ viewState, setViewState, onAuthSuccess }) => {
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
   const isLogin = viewState === 'login';
   const isRegister = viewState === 'register';
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
-    // Simulate network request
-    setTimeout(() => {
+    setError('');
+
+    try {
+      if (isLogin) {
+        const result = await loginUser(username, password);
+        if (onAuthSuccess) {
+          await onAuthSuccess(result.token);
+        }
+      } else {
+        const result = await registerUser(username, email, password, username);
+        if (onAuthSuccess) {
+          await onAuthSuccess(result.token);
+        }
+      }
+    } catch (err) {
+      setError(err.message || '请求失败');
+    } finally {
       setIsLoading(false);
-      setViewState('main');
-    }, 1500);
+    }
   };
 
   return (
@@ -45,33 +64,37 @@ const AuthView = ({ viewState, setViewState }) => {
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
-          {isRegister && (
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-300 ml-1">姓名</label>
-              <div className="relative">
-                <input 
-                  type="text" 
-                  placeholder="请输入您的姓名"
-                  className="w-full bg-slate-800/50 border border-slate-700 text-white rounded-xl px-4 py-3 pl-10 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-colors"
-                  required
-                />
-                <User className="w-4 h-4 text-slate-500 absolute left-3 top-3.5" />
-              </div>
-            </div>
-          )}
-
           <div className="space-y-1">
-            <label className="text-xs font-medium text-slate-300 ml-1">电子邮箱</label>
+            <label className="text-xs font-medium text-slate-300 ml-1">用户名</label>
             <div className="relative">
               <input 
-                type="email" 
-                placeholder="name@example.com"
+                type="text" 
+                placeholder="请输入用户名"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
                 className="w-full bg-slate-800/50 border border-slate-700 text-white rounded-xl px-4 py-3 pl-10 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-colors"
                 required
               />
-              <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-3.5" />
+              <User className="w-4 h-4 text-slate-500 absolute left-3 top-3.5" />
             </div>
           </div>
+
+          {isRegister && (
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-300 ml-1">电子邮箱</label>
+              <div className="relative">
+                <input 
+                  type="email" 
+                  placeholder="name@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full bg-slate-800/50 border border-slate-700 text-white rounded-xl px-4 py-3 pl-10 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-colors"
+                  required
+                />
+                <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-3.5" />
+              </div>
+            </div>
+          )}
 
           <div className="space-y-1">
             <div className="flex justify-between items-center ml-1">
@@ -81,12 +104,20 @@ const AuthView = ({ viewState, setViewState }) => {
               <input 
                 type="password" 
                 placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
                 className="w-full bg-slate-800/50 border border-slate-700 text-white rounded-xl px-4 py-3 pl-10 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-colors"
                 required
               />
               <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-3.5" />
             </div>
           </div>
+
+          {error && (
+            <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">
+              {error}
+            </div>
+          )}
 
           <button 
             type="submit" 

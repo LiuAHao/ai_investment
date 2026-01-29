@@ -4,7 +4,7 @@ import {
   Loader2, Sparkles, Send, User, LogOut, FileText, ArrowRight,
   ChevronUp, ChevronDown, TrendingUp
 } from 'lucide-react';
-import { MOCK_LOGS, CITATIONS, MOCK_CHART_DATA, getMockResponse } from './services/mockService';
+import { MOCK_CHART_DATA } from './services/mockService';
 import AgentStatusNode from './components/ui/AgentStatusNode';
 import ProgressBar from './components/ui/ProgressBar';
 import QuickStarter from './components/ui/QuickStarter';
@@ -13,6 +13,16 @@ import ProfileView from './components/views/ProfileView';
 import SettingsView from './components/views/SettingsView';
 import LandingView from './components/views/LandingView';
 import AuthView from './components/views/AuthView';
+import {
+  getAuthToken,
+  setAuthToken,
+  fetchProfile,
+  startAnalyzeWorkflow,
+  startQueryWorkflow,
+  getWorkflowStatus,
+  sendChatMessage,
+  fetchChatHistory,
+} from './services/apiClient';
 
 export default function InvestmentAgentApp() {
     const [query, setQuery] = useState('');
@@ -23,6 +33,14 @@ export default function InvestmentAgentApp() {
     const [isLogExpanded, setIsLogExpanded] = useState(true);
     const [showSettings, setShowSettings] = useState(false);
     const [showUserMenu, setShowUserMenu] = useState(false);
+    const [currentUser, setCurrentUser] = useState(null);
+    const [citations, setCitations] = useState([]);
+    const [chatSessionId, setChatSessionId] = useState('default');
+    const [analysisResult, setAnalysisResult] = useState(null);
+    const [riskPreference, setRiskPreference] = useState('稳健型 (蓝筹/红利)');
+    const [investmentHorizon, setInvestmentHorizon] = useState('超短线 (打板/T+0)');
+    const workflowTimerRef = useRef(null);
+    const chatTimerRef = useRef(null);
   
     // Gemini State
     const [aiSummary, setAiSummary] = useState('');
@@ -34,6 +52,28 @@ export default function InvestmentAgentApp() {
     const logsEndRef = useRef(null);
     const chatEndRef = useRef(null);
     const userMenuRef = useRef(null);
+
+    useEffect(() => {
+      const initAuth = async () => {
+        const token = getAuthToken();
+        if (!token) return;
+        try {
+          const profile = await fetchProfile();
+          setCurrentUser(profile);
+          setViewState('main');
+          await loadChatHistory(chatSessionId);
+        } catch (error) {
+          setAuthToken(null);
+        }
+      };
+
+      initAuth();
+
+      return () => {
+        if (workflowTimerRef.current) clearInterval(workflowTimerRef.current);
+        if (chatTimerRef.current) clearInterval(chatTimerRef.current);
+      };
+    }, []);
 
     // Close user menu when clicking outside
     useEffect(() => {
@@ -59,31 +99,84 @@ export default function InvestmentAgentApp() {
     }, [chatHistory, isChatLoading]);
 
     // Simulate the AI Workflow
-    const startAnalysis = () => {
+    const startAnalysis = async () => {
       if (!query) return;
+      if (!getAuthToken()) {
+        setViewState('login');
+        return;
+      }
+
       setAppState('processing');
       setProgress(0);
       setActiveLogs([]);
       setAiSummary('');
+      setIsAiGenerating(true);
 
-      // Simulation Sequence
-      let step = 0;
-      const interval = setInterval(() => {
-        step++;
-        setProgress((prev) => Math.min(prev + 15, 95));
-      
-        if (step < MOCK_LOGS.length + 1) {
-          setActiveLogs(prev => [...prev, MOCK_LOGS[step - 1]]);
-        }
+      if (workflowTimerRef.current) {
+        clearInterval(workflowTimerRef.current);
+        workflowTimerRef.current = null;
+      }
 
-        if (step >= MOCK_LOGS.length + 2) {
-          clearInterval(interval);
-          setProgress(100);
-          setAppState('completed');
-          // Trigger Gemini Analysis after simulation
-          generateExecutiveSummary(); 
-        }
-      }, 800);
+      try {
+        const trimmedQuery = query.trim();
+        const isSymbol = /^(?:\d{6}|[A-Za-z]{2}\d{6}|\d{6}\.(?:SZ|SS))$/i.test(trimmedQuery);
+          const preferences = {
+            risk_preference: riskPreference,
+            investment_horizon: investmentHorizon,
+          };
+          const response = isSymbol
+            ? await startAnalyzeWorkflow(trimmedQuery, 20, preferences)
+            : await startQueryWorkflow(trimmedQuery, preferences);
+
+        setChatSessionId(response.session_id); // This line is retained as it is relevant to the current context.
+
+        workflowTimerRef.current = setInterval(async () => {
+          try {
+            const status = await getWorkflowStatus(response.session_id);
+            setProgress(status.progress || 0);
+            setActiveLogs(
+              (status.logs || []).map((log) => ({
+                agent: log.agent,
+                step: log.step,
+                text: log.text,
+                status: log.status,
+                timestamp: log.timestamp,
+              }))
+            );
+
+            if (status.status === 'completed') {
+              clearInterval(workflowTimerRef.current);
+              workflowTimerRef.current = null;
+              setAppState('completed');
+              setIsAiGenerating(false);
+              const parsedResult = parseResult(status.result);
+              setAnalysisResult(parsedResult);
+              setAiSummary(buildSummary(parsedResult));
+              loadCitations(parsedResult);
+            }
+
+            if (status.status === 'failed') {
+              clearInterval(workflowTimerRef.current);
+              workflowTimerRef.current = null;
+              setIsAiGenerating(false);
+              setAppState('completed');
+              setAnalysisResult(null);
+              setAiSummary(status.error || '分析失败');
+            }
+          } catch (error) {
+            clearInterval(workflowTimerRef.current);
+            workflowTimerRef.current = null;
+            setIsAiGenerating(false);
+            setAppState('completed');
+            setAnalysisResult(null);
+            setAiSummary(error.message || '获取分析状态失败');
+          }
+        }, 1000);
+      } catch (error) {
+        setIsAiGenerating(false);
+        setAppState('completed');
+        setAiSummary(error.message || '启动分析失败');
+      }
     };
 
     useEffect(() => {
@@ -93,56 +186,160 @@ export default function InvestmentAgentApp() {
     }, [activeLogs]);
 
     // Feature 1: Generate Executive Summary via Gemini
-    const generateExecutiveSummary = async () => {
-      setIsAiGenerating(true);
-    
-      // Construct context from our "Mock" data to simulate a real analysis result
-      const contextPrompt = `
-        角色：你是一名资深 A 股金融分析师 AI Agent。
-        任务：根据以下（模拟的）股票数据，为投资者写一份简明扼要的"执行摘要"。
-      
-        股票代码：${query || '300750 (宁德时代)'}
-        价格趋势：7天内从 ¥210 涨至 ¥235。
-        市场情绪：75/100 (偏乐观)。
-        关键事件：
-        1. 海外储能订单落地 (置信度 0.88)
-        2. 锂电池产能利用率回升
-        3. 北向资金净流入
-      
-        要求：
-        1. 语言风格专业、客观但有说服力，符合中国 A 股市场语境。
-        2. 给出明确的"买入/持有/卖出"建议。
-        3. 字数控制在 150 字以内。
-        4. 使用中文回答。
-      `;
-
-      const summary = getMockResponse(contextPrompt);
-      setAiSummary(summary);
-      setIsAiGenerating(false);
+    const loadCitations = (result) => {
+      const webResults = result?.news_summary?.web_results || result?.web_results || [];
+      if (!webResults.length) {
+        setCitations([]);
+        return;
+      }
+      const mapped = webResults.map((item, index) => {
+        let source = item.source || '网络搜索';
+        if (!item.source && item.link) {
+          try {
+            source = new URL(item.link).hostname;
+          } catch (error) {
+            source = '网络搜索';
+          }
+        }
+        return {
+          source,
+          title: item.title || `结果 ${index + 1}`,
+          url: item.link || '#',
+          date: item.snippet ? '摘要' : `条目 ${index + 1}`,
+        };
+      });
+      setCitations(mapped);
     };
 
     // Feature 2: Chat / Follow-up
     const handleChatSubmit = async (e) => {
       e?.preventDefault();
       if (!chatInput.trim()) return;
+      if (!getAuthToken()) {
+        setViewState('login');
+        return;
+      }
 
       const userMsg = { role: 'user', text: chatInput };
       setChatHistory(prev => [...prev, userMsg]);
       setChatInput('');
       setIsChatLoading(true);
 
-      const contextPrompt = `
-        当前上下文：正在分析 ${query || '300750 (宁德时代)'} A股股票。
-        已知信息：海外订单落地，股价震荡上行，北向资金流入。
-        用户问题：${userMsg.text}
-      
-        请用简短、专业的 A 股金融术语回答用户问题。使用中文。
-      `;
+      try {
+        await sendChatMessage(userMsg.text, chatSessionId, 'user');
+      } catch (error) {
+        setIsChatLoading(false);
+        setChatHistory(prev => [...prev, { role: 'ai', text: error.message || '消息发送失败' }]);
+        return;
+      }
 
-      const aiResponseText = getMockResponse(contextPrompt);
+      if (chatTimerRef.current) {
+        clearInterval(chatTimerRef.current);
+        chatTimerRef.current = null;
+      }
 
-      setChatHistory(prev => [...prev, { role: 'ai', text: aiResponseText }]);
-      setIsChatLoading(false);
+      try {
+        const preferences = {
+          risk_preference: riskPreference,
+          investment_horizon: investmentHorizon,
+        };
+        const response = await startQueryWorkflow(userMsg.text, preferences);
+        chatTimerRef.current = setInterval(async () => {
+          try {
+            const status = await getWorkflowStatus(response.session_id);
+            if (status.status === 'completed') {
+              clearInterval(chatTimerRef.current);
+              chatTimerRef.current = null;
+              const aiText = formatResult(status.result) || '暂无结果';
+              setChatHistory(prev => [...prev, { role: 'ai', text: aiText }]);
+              await sendChatMessage(aiText, chatSessionId, 'assistant');
+              setIsChatLoading(false);
+            }
+            if (status.status === 'failed') {
+              clearInterval(chatTimerRef.current);
+              chatTimerRef.current = null;
+              const errorText = status.error || '查询失败';
+              setChatHistory(prev => [...prev, { role: 'ai', text: errorText }]);
+              setIsChatLoading(false);
+            }
+          } catch (error) {
+            clearInterval(chatTimerRef.current);
+            chatTimerRef.current = null;
+            setChatHistory(prev => [...prev, { role: 'ai', text: error.message || '查询失败' }]);
+            setIsChatLoading(false);
+          }
+        }, 1000);
+      } catch (error) {
+        setChatHistory(prev => [...prev, { role: 'ai', text: error.message || '查询失败' }]);
+        setIsChatLoading(false);
+      }
+    };
+
+    const loadChatHistory = async (sessionId) => {
+      if (!getAuthToken()) return;
+      try {
+        const data = await fetchChatHistory(sessionId, 50, 0);
+        const history = (data?.history || []).map((item) => ({
+          role: item.role === 'assistant' ? 'ai' : item.role,
+          text: item.content,
+        }));
+        setChatHistory(history);
+      } catch (error) {
+        setChatHistory([]);
+      }
+    };
+
+    const parseResult = (result) => {
+      if (!result) return null;
+      if (typeof result === 'string') {
+        const trimmed = result.trim();
+        if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+          try {
+            return JSON.parse(trimmed);
+          } catch (error) {
+            return result;
+          }
+        }
+        return result;
+      }
+      return result;
+    };
+
+    const buildSummary = (result) => {
+      if (!result) return '';
+      if (typeof result === 'string') return result;
+      if (result.recommendation) return result.recommendation;
+      const stock = result.stock_summary || {};
+      const tech = result.tech_indicators || {};
+      const news = result.news_summary || {};
+      const lines = [];
+      if (result.symbol) {
+        lines.push(`标的：${result.symbol}`);
+      }
+      if (stock.latest_close !== undefined) {
+        lines.push(`最新收盘价：¥${Number(stock.latest_close).toFixed(2)}`);
+      }
+      if (stock.total_return_pct !== undefined) {
+        lines.push(`区间涨跌幅：${stock.total_return_pct}%`);
+      }
+      if (tech.trend) {
+        lines.push(`趋势判断：${tech.trend}`);
+      }
+      if (news.total_titles !== undefined) {
+        lines.push(`新闻覆盖：${news.total_titles} 条，相关 ${news.relevant_count || 0} 条`);
+      }
+      return lines.join('\n');
+    };
+
+    const formatResult = (result) => {
+      const parsed = parseResult(result);
+      if (!parsed) return '';
+      if (typeof parsed === 'string') return parsed;
+      try {
+        return JSON.stringify(parsed, null, 2);
+      } catch (error) {
+        return String(parsed);
+      }
     };
 
     const handleQuickStart = (text) => {
@@ -154,6 +351,11 @@ export default function InvestmentAgentApp() {
       setViewState('landing');
       setAppState('idle');
       setQuery('');
+      setCurrentUser(null);
+      setAuthToken(null);
+      setChatHistory([]);
+      setCitations([]);
+      setAnalysisResult(null);
     };
 
     const handleViewChange = (view) => {
@@ -184,7 +386,21 @@ export default function InvestmentAgentApp() {
 
         {/* Auth Pages */}
         {(viewState === 'login' || viewState === 'register') && (
-          <AuthView viewState={viewState} setViewState={setViewState} />
+          <AuthView
+            viewState={viewState}
+            setViewState={setViewState}
+            onAuthSuccess={async (token) => {
+              setAuthToken(token);
+              try {
+                const profile = await fetchProfile();
+                setCurrentUser(profile);
+                setViewState('main');
+                await loadChatHistory(chatSessionId);
+              } catch (error) {
+                setAuthToken(null);
+              }
+            }}
+          />
         )}
 
         {/* Main App Layout */}
@@ -206,7 +422,7 @@ export default function InvestmentAgentApp() {
                        onClick={() => setShowUserMenu(!showUserMenu)}
                        className="w-8 h-8 rounded-full bg-gradient-to-br from-red-500 to-orange-600 border-2 border-slate-700 hover:border-red-500 transition-all flex items-center justify-center text-white text-sm font-bold shadow-lg"
                      >
-                       ZL
+                       {(currentUser?.nickname || currentUser?.username || 'AI')[0]}
                      </button>
                    
                      {/* User Dropdown Menu */}
@@ -214,8 +430,8 @@ export default function InvestmentAgentApp() {
                        <div className="absolute right-0 top-full mt-2 w-56 bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 z-50">
                          {/* User Info */}
                          <div className="px-4 py-3 border-b border-white/10">
-                           <p className="font-medium text-white">张磊</p>
-                           <p className="text-xs text-slate-400">zhang.lei@example.com</p>
+                           <p className="font-medium text-white">{currentUser?.nickname || currentUser?.username || '用户'}</p>
+                           <p className="text-xs text-slate-400">{currentUser?.email || '未设置邮箱'}</p>
                          </div>
                        
                          {/* Menu Items */}
@@ -256,7 +472,9 @@ export default function InvestmentAgentApp() {
             <main className="pt-24 pb-12 px-4 max-w-7xl mx-auto">
             
               {/* Render different views based on viewState */}
-              {viewState === 'profile' && <ProfileView setViewState={setViewState} />}
+              {viewState === 'profile' && (
+                <ProfileView setViewState={setViewState} user={currentUser} />
+              )}
               {viewState === 'settings' && <SettingsView setViewState={setViewState} />}
             
               {/* Main Investment Analysis View */}
@@ -308,14 +526,22 @@ export default function InvestmentAgentApp() {
                        <div className="grid grid-cols-2 gap-4">
                           <div>
                             <label className="text-xs text-slate-500 uppercase font-bold mb-2 block">风险偏好</label>
-                            <select className="w-full bg-slate-800 border border-slate-700 text-sm rounded-md p-2 text-slate-300">
+                            <select
+                              className="w-full bg-slate-800 border border-slate-700 text-sm rounded-md p-2 text-slate-300"
+                              value={riskPreference}
+                              onChange={(e) => setRiskPreference(e.target.value)}
+                            >
                               <option>稳健型 (蓝筹/红利)</option>
                               <option>激进型 (题材/成长)</option>
                             </select>
                           </div>
                           <div>
                             <label className="text-xs text-slate-500 uppercase font-bold mb-2 block">投资周期</label>
-                            <select className="w-full bg-slate-800 border border-slate-700 text-sm rounded-md p-2 text-slate-300">
+                            <select
+                              className="w-full bg-slate-800 border border-slate-700 text-sm rounded-md p-2 text-slate-300"
+                              value={investmentHorizon}
+                              onChange={(e) => setInvestmentHorizon(e.target.value)}
+                            >
                               <option>超短线 (打板/T+0)</option>
                               <option>波段操作 (周级别)</option>
                               <option>价值长持 (年级别)</option>
@@ -344,7 +570,7 @@ export default function InvestmentAgentApp() {
                   <div className="flex justify-between items-center mb-8 px-8 md:px-16">
                      <AgentStatusNode icon={Database} label="数据获取" status={progress > 10 ? (progress > 30 ? 'done' : 'active') : 'pending'} />
                      <div className="h-0.5 flex-1 bg-slate-800 mx-2"></div>
-                     <AgentStatusNode icon={Globe} label="新闻分析" status={progress > 30 ? (progress > 60 ? 'done' : 'active') : 'pending'} />
+                     <AgentStatusNode icon={Globe} label="数据分析" status={progress > 30 ? (progress > 60 ? 'done' : 'active') : 'pending'} />
                      <div className="h-0.5 flex-1 bg-slate-800 mx-2"></div>
                      <AgentStatusNode icon={Cpu} label="策略生成" status={progress > 60 ? (progress >= 100 ? 'done' : 'active') : 'pending'} />
                   </div>
@@ -363,11 +589,16 @@ export default function InvestmentAgentApp() {
                     </div>
                   
                     {isLogExpanded && (
-                      <div className="p-4 h-48 overflow-y-auto font-mono text-xs md:text-sm space-y-2 bg-transparent">
+                      <div className="p-4 h-56 overflow-y-auto font-mono text-xs md:text-sm space-y-2 bg-transparent">
                         {activeLogs.map((log, idx) => (
-                          <div key={idx} className="flex gap-3 animate-in fade-in slide-in-from-left-2">
-                            <span className="text-blue-400 w-24 shrink-0">[{log.agent}]</span>
-                            <span className="text-slate-300">{log.text}</span>
+                          <div key={idx} className="flex gap-3 items-start animate-in fade-in slide-in-from-left-2">
+                            <div className="text-blue-400 w-28 shrink-0 leading-5">[{log.agent}]</div>
+                            <div className="min-w-0 flex-1">
+                              {log.step && (
+                                <div className="text-slate-500 text-[11px] mb-0.5">{log.step}</div>
+                              )}
+                              <div className="text-slate-300 break-words whitespace-pre-wrap">{log.text}</div>
+                            </div>
                           </div>
                         ))}
                         <div ref={logsEndRef} />
@@ -412,19 +643,35 @@ export default function InvestmentAgentApp() {
                      <div className="flex gap-4 mt-6 border-t border-white/10 pt-6 overflow-x-auto">
                        <div className="bg-slate-800/40 rounded-lg p-3 flex-1 border border-white/5 min-w-[100px]">
                          <p className="text-slate-500 text-xs uppercase font-bold mb-1">当前股价</p>
-                         <p className="text-xl font-mono text-white">¥235.00</p>
+                         <p className="text-xl font-mono text-white">
+                           {analysisResult?.stock_summary?.latest_close !== undefined
+                             ? `¥${Number(analysisResult.stock_summary.latest_close).toFixed(2)}`
+                             : '—'}
+                         </p>
                        </div>
                        <div className="bg-slate-800/40 rounded-lg p-3 flex-1 border border-white/5 min-w-[100px]">
                          <p className="text-slate-500 text-xs uppercase font-bold mb-1">压力位</p>
-                         <p className="text-xl font-mono text-white">¥265.00</p>
+                         <p className="text-xl font-mono text-white">
+                           {analysisResult?.stock_summary?.high_max !== undefined
+                             ? `¥${Number(analysisResult.stock_summary.high_max).toFixed(2)}`
+                             : '—'}
+                         </p>
                        </div>
                        <div className="bg-slate-800/40 rounded-lg p-3 flex-1 border border-white/5 min-w-[100px]">
                          <p className="text-slate-500 text-xs uppercase font-bold mb-1">止损位</p>
-                         <p className="text-xl font-mono text-green-400">¥205.00</p>
+                         <p className="text-xl font-mono text-green-400">
+                           {analysisResult?.stock_summary?.low_min !== undefined
+                             ? `¥${Number(analysisResult.stock_summary.low_min).toFixed(2)}`
+                             : '—'}
+                         </p>
                        </div>
                        <div className="bg-slate-800/40 rounded-lg p-3 flex-1 border border-white/5 min-w-[100px]">
                          <p className="text-slate-500 text-xs uppercase font-bold mb-1">风险等级</p>
-                         <p className="text-xl font-mono text-yellow-400">Medium</p>
+                         <p className="text-xl font-mono text-yellow-400">
+                           {analysisResult?.stock_summary?.volatility_pct !== undefined
+                             ? `${analysisResult.stock_summary.volatility_pct}%`
+                             : '—'}
+                         </p>
                        </div>
                      </div>
                   </div>
@@ -469,10 +716,10 @@ export default function InvestmentAgentApp() {
                   <div className="md:col-span-7 bg-slate-900/60 backdrop-blur-md rounded-2xl border border-white/10 p-6 shadow-xl">
                      <h3 className="text-sm font-bold text-slate-400 uppercase mb-4 flex items-center gap-2">
                        <Database className="w-4 h-4" /> 
-                       参考数据源 (RAG Retrieval)
+                       参考数据源
                      </h3>
                      <div className="space-y-3">
-                       {CITATIONS.map((cite, idx) => (
+                       {citations.map((cite, idx) => (
                          <a key={idx} href={cite.url} className="block group">
                            <div className="flex items-start justify-between p-3 rounded-lg hover:bg-white/5 transition-colors border border-transparent hover:border-white/10">
                               <div className="flex gap-3">

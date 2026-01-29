@@ -8,20 +8,60 @@
 from typing import Dict, Optional
 
 import logging
+import os
+from contextlib import contextmanager
+from datetime import datetime, timedelta
 
 import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-from stock.stock_api import get_stock_zh_a_hist
+from stock.stock_api import (
+    get_stock_sse_deal_daily,
+    get_stock_sse_summary,
+    get_stock_szse_summary,
+    get_stock_zh_a_hist,
+    get_stock_zh_a_spot_em,
+)
 
 
 class StockAgent:
     """股票 Agent"""
 
-    def __init__(self, default_start_date: str = "20230101", default_end_date: str = "20231231"):
-        self.default_start_date = default_start_date
-        self.default_end_date = default_end_date
+    @staticmethod
+    @contextmanager
+    def _without_proxy():
+        if os.getenv("AKSHARE_DISABLE_PROXY", "0") != "1":
+            yield
+            return
+        proxy_keys = [
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "ALL_PROXY",
+            "http_proxy",
+            "https_proxy",
+            "all_proxy",
+        ]
+        backup = {key: os.environ.get(key) for key in proxy_keys if os.environ.get(key)}
+        for key in proxy_keys:
+            os.environ.pop(key, None)
+        try:
+            yield
+        finally:
+            for key, value in backup.items():
+                os.environ[key] = value
+
+    def __init__(self, default_start_date: Optional[str] = None, default_end_date: Optional[str] = None):
+        if default_end_date:
+            self.default_end_date = default_end_date
+        else:
+            self.default_end_date = datetime.now().strftime("%Y%m%d")
+
+        if default_start_date:
+            self.default_start_date = default_start_date
+        else:
+            start = datetime.now() - timedelta(days=90)
+            self.default_start_date = start.strftime("%Y%m%d")
 
     def fetch_daily_hist(
         self,
@@ -57,13 +97,14 @@ class StockAgent:
             adjust,
         )
         try:
-            df = get_stock_zh_a_hist(
-                symbol=symbol,
-                start_date=start,
-                end_date=end,
-                period=period,
-                adjust=adjust,
-            )
+            with self._without_proxy():
+                df = get_stock_zh_a_hist(
+                    symbol=symbol,
+                    start_date=start,
+                    end_date=end,
+                    period=period,
+                    adjust=adjust,
+                )
         except Exception as exc:
             logger.error("股票Agent: 获取历史行情失败, error=%s", str(exc))
             return {"symbol": symbol, "rows": 0, "error": str(exc)}
@@ -80,6 +121,127 @@ class StockAgent:
             summary["head"] = df.head(3).to_dict(orient="records")
         logger.info("股票Agent: 获取历史行情完成, rows=%s", len(df))
         return summary
+
+    def fetch_spot_em(self, symbols: Optional[list] = None, limit: int = 50) -> Dict:
+        """
+        获取沪深京 A 股实时行情摘要
+
+        Args:
+            symbols: 可选股票/指数代码或名称列表
+            limit: 返回条目数量
+
+        Returns:
+            摘要字典
+        """
+        logger.info("股票Agent: 获取实时行情, symbols=%s, limit=%s", symbols, limit)
+        try:
+            with self._without_proxy():
+                df = get_stock_zh_a_spot_em()
+        except Exception as exc:
+            logger.error("股票Agent: 获取实时行情失败, error=%s", str(exc))
+            return {"rows": 0, "error": str(exc)}
+
+        if df is None or len(df) == 0:
+            return {"rows": 0}
+
+        filtered = df
+        if symbols:
+            keywords = [str(s).strip() for s in symbols if str(s).strip()]
+            if keywords:
+                code_col = "代码" if "代码" in df.columns else None
+                name_col = "名称" if "名称" in df.columns else None
+                if code_col or name_col:
+                    mask = False
+                    for kw in keywords:
+                        if code_col:
+                            mask = mask | df[code_col].astype(str).str.contains(kw, na=False)
+                        if name_col:
+                            mask = mask | df[name_col].astype(str).str.contains(kw, na=False)
+                    filtered = df[mask] if hasattr(mask, "any") else df
+
+        data = filtered.head(limit).to_dict(orient="records")
+        return {
+            "rows": len(filtered),
+            "columns": list(filtered.columns),
+            "data": data,
+        }
+
+    def fetch_sse_summary(self) -> Dict:
+        """
+        获取上交所市场总貌
+
+        Returns:
+            汇总字典
+        """
+        logger.info("股票Agent: 获取上交所市场总貌")
+        try:
+            with self._without_proxy():
+                df = get_stock_sse_summary()
+        except Exception as exc:
+            logger.error("股票Agent: 获取上交所总貌失败, error=%s", str(exc))
+            return {"rows": 0, "error": str(exc)}
+
+        if df is None or len(df) == 0:
+            return {"rows": 0}
+        return {
+            "rows": len(df),
+            "columns": list(df.columns),
+            "data": df.to_dict(orient="records"),
+        }
+
+    def fetch_szse_summary(self, date: Optional[str] = None) -> Dict:
+        """
+        获取深交所市场总貌
+
+        Args:
+            date: 日期 YYYYMMDD
+
+        Returns:
+            汇总字典
+        """
+        use_date = date.replace("-", "") if date else ""
+        logger.info("股票Agent: 获取深交所市场总貌, date=%s", use_date or "latest")
+        try:
+            with self._without_proxy():
+                df = get_stock_szse_summary(date=use_date)
+        except Exception as exc:
+            logger.error("股票Agent: 获取深交所总貌失败, error=%s", str(exc))
+            return {"rows": 0, "error": str(exc)}
+
+        if df is None or len(df) == 0:
+            return {"rows": 0}
+        return {
+            "rows": len(df),
+            "columns": list(df.columns),
+            "data": df.to_dict(orient="records"),
+        }
+
+    def fetch_sse_deal_daily(self, date: Optional[str] = None) -> Dict:
+        """
+        获取上交所每日概况
+
+        Args:
+            date: 日期 YYYYMMDD
+
+        Returns:
+            汇总字典
+        """
+        use_date = date.replace("-", "") if date else ""
+        logger.info("股票Agent: 获取上交所每日概况, date=%s", use_date or "latest")
+        try:
+            with self._without_proxy():
+                df = get_stock_sse_deal_daily(date=use_date)
+        except Exception as exc:
+            logger.error("股票Agent: 获取上交所每日概况失败, error=%s", str(exc))
+            return {"rows": 0, "error": str(exc)}
+
+        if df is None or len(df) == 0:
+            return {"rows": 0}
+        return {
+            "rows": len(df),
+            "columns": list(df.columns),
+            "data": df.to_dict(orient="records"),
+        }
 
     def analyze_daily_hist(
         self,
@@ -113,13 +275,14 @@ class StockAgent:
             adjust,
         )
         try:
-            df = get_stock_zh_a_hist(
-                symbol=symbol,
-                start_date=start,
-                end_date=end,
-                period=period,
-                adjust=adjust,
-            )
+            with self._without_proxy():
+                df = get_stock_zh_a_hist(
+                    symbol=symbol,
+                    start_date=start,
+                    end_date=end,
+                    period=period,
+                    adjust=adjust,
+                )
         except Exception as exc:
             logger.error("股票Agent: 分析历史行情失败, error=%s", str(exc))
             return {"symbol": symbol, "rows": 0, "error": str(exc)}
@@ -209,7 +372,6 @@ class StockAgent:
     ) -> Dict:
         """
         计算基础技术指标（MA/趋势/动量）
-
         Args:
             symbol: 股票代码
             start_date: 开始日期 YYYYMMDD
@@ -219,7 +381,7 @@ class StockAgent:
             ma_windows: 均线窗口列表
 
         Returns:
-            技术指标字典
+            技术指标摘要
         """
         start = start_date or self.default_start_date
         end = end_date or self.default_end_date
@@ -231,16 +393,18 @@ class StockAgent:
             period,
             adjust,
         )
+
         try:
-            df = get_stock_zh_a_hist(
-                symbol=symbol,
-                start_date=start,
-                end_date=end,
-                period=period,
-                adjust=adjust,
-            )
+            with self._without_proxy():
+                df = get_stock_zh_a_hist(
+                    symbol=symbol,
+                    start_date=start,
+                    end_date=end,
+                    period=period,
+                    adjust=adjust,
+                )
         except Exception as exc:
-            logger.error("股票Agent: 计算技术指标失败, error=%s", str(exc))
+            logger.error("股票Agent: 技术指标失败, error=%s", str(exc))
             return {"symbol": symbol, "rows": 0, "error": str(exc)}
 
         if df is None or len(df) == 0:
@@ -256,7 +420,21 @@ class StockAgent:
         if not close_col:
             return {"symbol": symbol, "rows": len(df), "error": "缺少收盘价字段"}
 
-        ma_windows = ma_windows or [5, 10, 20, 60]
+        if ma_windows is None:
+            if len(df) >= 60:
+                ma_windows = [5, 10, 20, 60]
+            elif len(df) >= 20:
+                ma_windows = [5, 10, 20]
+            elif len(df) >= 10:
+                ma_windows = [3, 5, 10]
+            elif len(df) >= 6:
+                ma_windows = [3, 5]
+            elif len(df) >= 4:
+                ma_windows = [2, 4]
+            elif len(df) >= 3:
+                ma_windows = [2, 3]
+            else:
+                ma_windows = [2]
         close_series = pd.Series(df[close_col])
         latest_close = float(close_series.iloc[-1])
 
@@ -266,10 +444,13 @@ class StockAgent:
                 ma_values[f"ma_{w}"] = round(float(close_series.rolling(w).mean().iloc[-1]), 4)
 
         trend = None
-        if "ma_5" in ma_values and "ma_20" in ma_values:
-            if ma_values["ma_5"] > ma_values["ma_20"]:
+        if len(ma_values) >= 2:
+            sorted_windows = sorted(ma_values.keys(), key=lambda k: int(k.split("_")[1]))
+            short_key = sorted_windows[0]
+            long_key = sorted_windows[-1]
+            if ma_values[short_key] > ma_values[long_key]:
                 trend = "上行"
-            elif ma_values["ma_5"] < ma_values["ma_20"]:
+            elif ma_values[short_key] < ma_values[long_key]:
                 trend = "下行"
             else:
                 trend = "横盘"

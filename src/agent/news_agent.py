@@ -12,7 +12,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from news.news_api import get_news_titles
+from utils.web_search import search_web
 
 
 class NewsAgent:
@@ -21,65 +21,57 @@ class NewsAgent:
     def __init__(self, default_limit: int = 50, cache_seconds: int = 60):
         self.default_limit = default_limit
         self.cache_seconds = cache_seconds
-        self._cache_titles: List[str] = []
-        self._cache_time: Optional[datetime] = None
 
-    def fetch_titles(self, limit: Optional[int] = None) -> List[str]:
+    def fetch_titles_with_web(
+        self,
+        limit: Optional[int] = None,
+        web_limit: int = 5,
+        web_query: Optional[str] = None,
+    ) -> Dict:
         """
-        获取新闻标题列表
+        获取新闻标题并附带联网搜索结果
 
         Args:
-            limit: 最多返回标题数量
+            limit: RSS 标题数量
+            web_limit: 联网搜索结果数量
+            web_query: 联网搜索关键词
 
         Returns:
-            标题列表
+            RSS 与联网搜索结果
         """
-        use_limit = limit or self.default_limit
-        logger.info("新闻Agent: 获取新闻标题, limit=%s", use_limit)
-        if self._cache_time and self._cache_titles:
-            delta = (datetime.now() - self._cache_time).total_seconds()
-            if delta <= self.cache_seconds:
-                logger.info("新闻Agent: 使用缓存, age=%.1fs", delta)
-                return self._cache_titles[:use_limit]
+        query = web_query or "A股 财经 新闻 最新"
+        web_results = search_web(query, max_results=web_limit)
+        return {
+            "web_query": query,
+            "web_results": web_results,
+        }
 
-        titles = get_news_titles(limit=use_limit)
-        logger.info("新闻Agent: 获取标题完成, count=%s", len(titles))
-        self._cache_titles = titles
-        self._cache_time = datetime.now()
-        return titles
-
-    def filter_by_keywords(self, titles: List[str], keywords: List[str]) -> List[Dict]:
+    def search_web_by_keywords(
+        self,
+        keywords: List[str],
+        web_limit: int = 5,
+    ) -> List[Dict[str, str]]:
         """
-        按关键词筛选标题并返回相关度
+        按关键词进行联网搜索
 
         Args:
-            titles: 标题列表
             keywords: 关键词列表
+            web_limit: 返回结果数量
 
         Returns:
-            含相关度的结果列表
+            联网搜索结果列表
         """
-        if not titles or not keywords:
-            return []
+        query = " ".join([kw for kw in keywords if kw])
+        if query:
+            query = f"{query} 新闻"
+        return search_web(query, max_results=web_limit)
 
-        results: List[Dict] = []
-        for title in titles:
-            score = 0
-            lower_title = title.lower()
-            for kw in keywords:
-                if kw.lower() in lower_title:
-                    score += 1
-            if score > 0:
-                results.append({
-                    "title": title,
-                    "relevance_score": score,
-                })
-
-        results.sort(key=lambda x: x["relevance_score"], reverse=True)
-        logger.info("新闻Agent: 关键词筛选完成, keywords=%s, matched=%s", keywords, len(results))
-        return results
-
-    def get_relevant_titles(self, keywords: List[str], limit: Optional[int] = None) -> Dict:
+    def get_relevant_titles(
+        self,
+        keywords: List[str],
+        limit: Optional[int] = None,
+        web_limit: int = 5,
+    ) -> Dict:
         """
         获取并筛选相关新闻标题
 
@@ -90,12 +82,11 @@ class NewsAgent:
         Returns:
             结果摘要
         """
-        use_limit = limit or self.default_limit
-        logger.info("新闻Agent: 获取相关新闻, keywords=%s, limit=%s", keywords, use_limit)
-        titles = self.fetch_titles(limit=use_limit)
-        relevant = self.filter_by_keywords(titles, keywords)
+        logger.info("新闻Agent: 获取相关新闻, keywords=%s", keywords)
+        web_results = self.search_web_by_keywords(keywords, web_limit=web_limit)
         return {
             "timestamp": datetime.now().isoformat(timespec="seconds"),
-            "total_titles": len(titles),
-            "relevant_titles": relevant,
+            "total_titles": 0,
+            "relevant_titles": [],
+            "web_results": web_results,
         }

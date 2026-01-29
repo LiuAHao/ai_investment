@@ -23,3 +23,11 @@ akshare>=1.0.0
 
 # 大模型调用
 openai>=1.0.0
+
+# 联网搜索
+ddgs>=1.0.0
+
+# Flask API
+flask>=3.0.0
+flask-cors>=4.0.0
+pyjwt>=2.8.0
