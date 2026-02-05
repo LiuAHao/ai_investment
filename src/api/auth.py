@@ -28,6 +28,7 @@ def register():
     email = data.get("email")
     password = data.get("password")
     nickname = data.get("nickname", username)
+    phone = data.get("phone")
 
     if not all([username, email, password]):
         return jsonify({"error": "缺少必要字段"}), 400
@@ -46,6 +47,7 @@ def register():
             user = User(
                 username=username,
                 email=email,
+                phone=phone,
                 password_hash=hash_password(password),
                 nickname=nickname,
             )
@@ -62,6 +64,7 @@ def register():
                         "id": user.id,
                         "username": user.username,
                         "email": user.email,
+                        "phone": user.phone,
                         "nickname": user.nickname,
                     },
                 }
@@ -84,7 +87,10 @@ def login():
 
     with get_db() as db:
         try:
-            user = db.query(User).filter_by(username=username).first()
+            if "@" in username:
+                user = db.query(User).filter_by(email=username).first()
+            else:
+                user = db.query(User).filter_by(username=username).first()
 
             if not user or user.password_hash != hash_password(password):
                 return jsonify({"error": "用户名或密码错误"}), 401
@@ -102,6 +108,7 @@ def login():
                         "id": user.id,
                         "username": user.username,
                         "email": user.email,
+                        "phone": user.phone,
                         "nickname": user.nickname,
                     },
                 }

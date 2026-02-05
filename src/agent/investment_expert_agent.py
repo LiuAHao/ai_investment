@@ -59,3 +59,41 @@ class InvestmentExpertAgent:
             messages=messages,
         )
         return response.choices[0].message.content or ""
+
+    def summarize_brief(
+        self,
+        user_query: str,
+        tool_results: List[Dict[str, Any]],
+        preferences: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """
+        输出简短回答，用于问答场景
+
+        Args:
+            user_query: 用户问题
+            tool_results: 工具调用结果
+            preferences: 投资偏好（可选）
+
+        Returns:
+            简短回答文本
+        """
+        pref_text = json.dumps(preferences or {}, ensure_ascii=False, default=str)
+        tools_text = json.dumps(tool_results or [], ensure_ascii=False, default=str)
+
+        system_prompt = (
+            "你是投资助理，请基于工具结果做简短回答，控制在 3-5 句话内。"
+            "避免长篇分析，不要编造。若数据不足，明确说明。"
+        )
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_query},
+            {"role": "user", "content": f"投资偏好: {pref_text}"},
+            {"role": "user", "content": f"工具结果: {tools_text}"},
+        ]
+
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+        )
+        return response.choices[0].message.content or ""

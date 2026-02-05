@@ -11,8 +11,13 @@ from datetime import datetime
 from models.database import ChatHistory
 from models import get_db
 from api.auth import get_current_user
+from agent.decision_agent import DecisionAgent
+from agent.investment_expert_agent import InvestmentExpertAgent
 
 chat_bp = Blueprint("chat", __name__)
+
+decision_agent = DecisionAgent()
+expert_agent = InvestmentExpertAgent()
 
 
 @chat_bp.route("/send", methods=["POST"])
@@ -161,3 +166,50 @@ def clear():
         except Exception as e:
             db.rollback()
             return jsonify({"error": f"清空失败: {str(e)}"}), 500
+
+
+@chat_bp.route("/ask", methods=["POST"])
+def ask():
+    """简短问答（按需调用工具）"""
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "未授权"}), 401
+
+    data = request.get_json() or {}
+    content = data.get("content")
+    session_id = data.get("session_id", "default")
+    preferences = data.get("preferences")
+
+    if not content:
+        return jsonify({"error": "消息内容不能为空"}), 400
+
+    with get_db() as db:
+        try:
+            user_chat = ChatHistory(
+                user_id=user.id, role="user", content=content, session_id=session_id
+            )
+            db.add(user_chat)
+            db.commit()
+
+            tool_results = decision_agent.run_tools(content, max_rounds=1)
+            reply_text = expert_agent.summarize_brief(content, tool_results, preferences)
+
+            assistant_chat = ChatHistory(
+                user_id=user.id,
+                role="assistant",
+                content=reply_text,
+                session_id=session_id,
+            )
+            db.add(assistant_chat)
+            db.commit()
+
+            return jsonify(
+                {
+                    "message": "回答完成",
+                    "reply": reply_text,
+                    "session_id": session_id,
+                }
+            ), 200
+        except Exception as e:
+            db.rollback()
+            return jsonify({"error": f"问答失败: {str(e)}"}), 500

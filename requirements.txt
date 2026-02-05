@@ -24,6 +24,10 @@ akshare>=1.0.0
 # 大模型调用
 openai>=1.0.0
 
+# 向量库与嵌入
+chromadb>=0.5.0
+sentence-transformers>=2.2.2
+
 # 联网搜索
 ddgs>=1.0.0
 

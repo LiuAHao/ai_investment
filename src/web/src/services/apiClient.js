@@ -58,6 +58,30 @@ export const fetchProfile = async () => {
   return apiRequest('/api/user/profile', { auth: true });
 };
 
+export const updateProfile = async (nickname, email) => {
+  return apiRequest('/api/user/profile', {
+    method: 'PUT',
+    auth: true,
+    body: { nickname, email },
+  });
+};
+
+export const updatePhone = async (phone) => {
+  return apiRequest('/api/user/phone', {
+    method: 'PUT',
+    auth: true,
+    body: { phone },
+  });
+};
+
+export const updatePassword = async (currentPassword, newPassword) => {
+  return apiRequest('/api/user/password', {
+    method: 'PUT',
+    auth: true,
+    body: { current_password: currentPassword, new_password: newPassword },
+  });
+};
+
 export const startAnalyzeWorkflow = async (symbol, newsLimit = 20, preferences = null) => {
   return apiRequest('/api/agent/analyze', {
     method: 'POST',
@@ -87,6 +111,14 @@ export const sendChatMessage = async (content, sessionId, role = 'user') => {
     method: 'POST',
     auth: true,
     body: { content, session_id: sessionId, role },
+  });
+};
+
+export const askChat = async (content, sessionId, preferences = null) => {
+  return apiRequest('/api/chat/ask', {
+    method: 'POST',
+    auth: true,
+    body: { content, session_id: sessionId, preferences },
   });
 };
 

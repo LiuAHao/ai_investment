@@ -1,0 +1,57 @@
+{
+  "data": {
+    "raw_dir": "data/raw",
+    "clean_dir": "data/clean",
+    "chunks_dir": "data/chunks"
+  },
+  "index": {
+    "index_dir": "index",
+    "index_file": "simple_index.json"
+  },
+  "chroma": {
+    "persist_dir": "index/chroma",
+    "collection": "rag_knowledge",
+    "reset": true,
+    "batch_size": 64
+  },
+  "embedding": {
+    "model_name": "BAAI/bge-small-zh-v1.5"
+  },
+  "rerank": {
+    "enabled": true,
+    "model_name": "BAAI/bge-reranker-base",
+    "top_k": 3,
+    "min_candidates": 3
+  },
+  "cache": {
+    "enabled": true,
+    "ttl_seconds": 300,
+    "max_size": 256
+  },
+  "hf": {
+    "local_files_only": true
+  },
+  "chunking": {
+    "max_chars": 800,
+    "min_chars": 200,
+    "overlap_chars": 80,
+    "heading_weight": true
+  },
+  "query": {
+    "top_k": 5
+  },
+  "hybrid": {
+    "enabled": true,
+    "vector_top_k": 8,
+    "keyword_top_k": 8,
+    "rrf_k": 60
+  },
+  "fallback": {
+    "min_results": 1,
+    "min_score": 0.02
+  },
+  "io": {
+    "encoding": "utf-8",
+    "allowed_exts": [".md", ".txt"]
+  }
+}

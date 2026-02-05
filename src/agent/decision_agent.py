@@ -8,12 +8,15 @@
 import json
 import os
 import re
-from typing import Any, Dict, List, Optional
+import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from typing import Any, Dict, List, Optional, Tuple
 
 from openai import OpenAI
 
 from agent.news_agent import NewsAgent
 from agent.stock_agent import StockAgent
+from rag.knowledge_tool import query_investment_knowledge
 
 import logging
 
@@ -64,6 +67,28 @@ class DecisionAgent:
         self.news_agent = NewsAgent()
         self.stock_agent = StockAgent()
         self._tool_cache: Dict[str, Any] = {}
+        self.max_tool_rounds = int(_get_env("AGENT_TOOL_MAX_ROUNDS", "2"))
+        self.tool_timeout_seconds = int(_get_env("AGENT_TOOL_TIMEOUT", "15"))
+        self.tool_cache_ttl = int(_get_env("AGENT_TOOL_CACHE_TTL", "300"))
+        self.tool_cache_max = int(_get_env("AGENT_TOOL_CACHE_MAX", "256"))
+        self._global_tool_cache: Dict[str, Tuple[float, Any]] = {}
+        self.tool_max_workers = int(_get_env("AGENT_TOOL_MAX_WORKERS", "3"))
+
+    def _get_cached_tool_result(self, cache_key: str) -> Optional[Any]:
+        cached = self._global_tool_cache.get(cache_key)
+        if not cached:
+            return None
+        ts, payload = cached
+        if time.time() - ts > self.tool_cache_ttl:
+            self._global_tool_cache.pop(cache_key, None)
+            return None
+        return payload
+
+    def _set_cached_tool_result(self, cache_key: str, payload: Any) -> None:
+        if len(self._global_tool_cache) >= self.tool_cache_max:
+            oldest_key = min(self._global_tool_cache.items(), key=lambda item: item[1][0])[0]
+            self._global_tool_cache.pop(oldest_key, None)
+        self._global_tool_cache[cache_key] = (time.time(), payload)
 
     def _tools(self) -> List[Dict[str, Any]]:
         return [
@@ -202,6 +227,21 @@ class DecisionAgent:
                     }
                 }
             },
+            {
+                "type": "function",
+                "function": {
+                    "name": "query_investment_knowledge",
+                    "description": "查询 RAG 投资知识库，返回相关知识片段",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string"},
+                            "top_k": {"type": "integer"}
+                        },
+                        "required": ["query"]
+                    }
+                }
+            },
         ]
 
     @staticmethod
@@ -258,6 +298,10 @@ class DecisionAgent:
 
     def _call_tool(self, name: str, args: Dict[str, Any]) -> Any:
         cache_key = f"{name}:{json.dumps(args, sort_keys=True, ensure_ascii=False)}"
+        cached = self._get_cached_tool_result(cache_key)
+        if cached is not None:
+            logger.info("主控: 使用全局缓存工具结果, name=%s", name)
+            return cached
         if cache_key in self._tool_cache:
             logger.info("主控: 使用缓存工具结果, name=%s", name)
             return self._tool_cache[cache_key]
@@ -276,6 +320,7 @@ class DecisionAgent:
             )
             logger.info("主控: 子Agent返回, name=%s, keys=%s", name, list(result.keys()))
             self._tool_cache[cache_key] = result
+            self._set_cached_tool_result(cache_key, result)
             return result
         if name == "get_stock_history":
             symbol = self._normalize_symbol(args.get("symbol"))
@@ -291,12 +336,14 @@ class DecisionAgent:
             )
             logger.info("主控: 子Agent返回, name=%s, keys=%s", name, list(result.keys()))
             self._tool_cache[cache_key] = result
+            self._set_cached_tool_result(cache_key, result)
             return result
         if name == "get_stock_summary":
             symbol = self._normalize_symbol(args.get("symbol"))
             result = self.stock_agent.summarize(symbol=symbol)
             logger.info("主控: 子Agent返回, name=%s, keys=%s", name, list(result.keys()))
             self._tool_cache[cache_key] = result
+            self._set_cached_tool_result(cache_key, result)
             return result
         if name == "get_stock_tech":
             symbol = self._normalize_symbol(args.get("symbol"))
@@ -312,23 +359,27 @@ class DecisionAgent:
             )
             logger.info("主控: 子Agent返回, name=%s, keys=%s", name, list(result.keys()))
             self._tool_cache[cache_key] = result
+            self._set_cached_tool_result(cache_key, result)
             return result
         if name == "get_sse_summary":
             result = self.stock_agent.fetch_sse_summary()
             logger.info("主控: 子Agent返回, name=%s, rows=%s", name, result.get("rows"))
             self._tool_cache[cache_key] = result
+            self._set_cached_tool_result(cache_key, result)
             return result
         if name == "get_szse_summary":
             date = self._normalize_date(args.get("date"))
             result = self.stock_agent.fetch_szse_summary(date=date)
             logger.info("主控: 子Agent返回, name=%s, rows=%s", name, result.get("rows"))
             self._tool_cache[cache_key] = result
+            self._set_cached_tool_result(cache_key, result)
             return result
         if name == "get_sse_deal_daily":
             date = self._normalize_date(args.get("date"))
             result = self.stock_agent.fetch_sse_deal_daily(date=date)
             logger.info("主控: 子Agent返回, name=%s, rows=%s", name, result.get("rows"))
             self._tool_cache[cache_key] = result
+            self._set_cached_tool_result(cache_key, result)
             return result
         if name == "get_relevant_titles":
             keywords = self._clean_keywords(args.get("keywords", []))
@@ -339,6 +390,7 @@ class DecisionAgent:
             )
             logger.info("主控: 子Agent返回, name=%s, keys=%s", name, list(result.keys()))
             self._tool_cache[cache_key] = result
+            self._set_cached_tool_result(cache_key, result)
             return result
         if name == "web_search":
             query = args.get("query")
@@ -346,8 +398,29 @@ class DecisionAgent:
             result = self.news_agent.search_web_by_keywords([query], web_limit=limit)
             logger.info("主控: 子Agent返回, name=%s, count=%s", name, len(result))
             self._tool_cache[cache_key] = result
+            self._set_cached_tool_result(cache_key, result)
+            return result
+        if name == "query_investment_knowledge":
+            query = str(args.get("query") or "").strip()
+            top_k = args.get("top_k")
+            result = query_investment_knowledge(query=query, top_k=top_k)
+            logger.info("主控: 子Agent返回, name=%s, keys=%s", name, list(result.keys()))
+            self._tool_cache[cache_key] = result
+            self._set_cached_tool_result(cache_key, result)
             return result
         return {"error": f"unknown tool: {name}"}
+
+    def _call_tool_with_timeout(self, name: str, args: Dict[str, Any]) -> Any:
+        """
+        为工具调用增加超时保护，避免阻塞。
+        """
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(self._call_tool, name, args)
+            try:
+                return future.result(timeout=self.tool_timeout_seconds)
+            except TimeoutError:
+                logger.warning("主控: 工具调用超时, name=%s", name)
+                return {"error": "tool_timeout", "name": name}
 
     def run(self, user_query: str) -> str:
         tool_results = self.run_tools(user_query)
@@ -366,7 +439,7 @@ class DecisionAgent:
         )
         return final_response.choices[0].message.content or ""
 
-    def run_tools(self, user_query: str) -> List[Dict[str, Any]]:
+    def run_tools(self, user_query: str, max_rounds: Optional[int] = None) -> List[Dict[str, Any]]:
         """
         仅负责工具选择与调用，返回工具结果
         """
@@ -386,7 +459,8 @@ class DecisionAgent:
         tools = self._tools()
         tool_results: List[Dict[str, Any]] = []
 
-        for _ in range(4):
+        rounds = max_rounds if max_rounds is not None else self.max_tool_rounds
+        for _ in range(rounds):
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
@@ -404,19 +478,48 @@ class DecisionAgent:
                 "tool_calls": message.tool_calls,
             })
 
-            for tool_call in message.tool_calls:
-                name = tool_call.function.name
-                args = json.loads(tool_call.function.arguments or "{}")
-                result = self._call_tool(name, args)
-                tool_results.append({
-                    "name": name,
-                    "args": args,
-                    "result": result,
-                })
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": json.dumps(result, ensure_ascii=False),
-                })
+            tool_calls = list(message.tool_calls or [])
+            if tool_calls:
+                task_inputs = []
+                for idx, tool_call in enumerate(tool_calls):
+                    name = tool_call.function.name
+                    args = json.loads(tool_call.function.arguments or "{}")
+                    task_inputs.append((idx, name, args, tool_call.id))
+
+                results_map: Dict[int, Dict[str, Any]] = {}
+                max_workers = min(self.tool_max_workers, len(task_inputs))
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    future_map = {
+                        executor.submit(self._call_tool_with_timeout, name, args): (idx, name, args, tool_call_id)
+                        for idx, name, args, tool_call_id in task_inputs
+                    }
+                    for future in future_map:
+                        idx, name, args, tool_call_id = future_map[future]
+                        try:
+                            result = future.result()
+                        except Exception as exc:
+                            logger.exception("主控: 工具并行执行失败, name=%s", name)
+                            result = {"error": "tool_exception", "name": name, "detail": str(exc)}
+                        results_map[idx] = {
+                            "name": name,
+                            "args": args,
+                            "result": result,
+                            "tool_call_id": tool_call_id,
+                        }
+
+                for idx in sorted(results_map.keys()):
+                    item = results_map[idx]
+                    tool_results.append(
+                        {
+                            "name": item["name"],
+                            "args": item["args"],
+                            "result": item["result"],
+                        }
+                    )
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": item["tool_call_id"],
+                        "content": json.dumps(item["result"], ensure_ascii=False),
+                    })
 
         return tool_results

@@ -22,6 +22,7 @@ import {
   getWorkflowStatus,
   sendChatMessage,
   fetchChatHistory,
+  askChat,
 } from './services/apiClient';
 
 export default function InvestmentAgentApp() {
@@ -74,6 +75,46 @@ export default function InvestmentAgentApp() {
         if (chatTimerRef.current) clearInterval(chatTimerRef.current);
       };
     }, []);
+
+    const formatAgentLabel = (agent) => {
+      const mapping = {
+        DecisionAgent: '决策分析',
+        NewsAgent: '新闻分析',
+        StockAgent: '数据获取',
+        MasterAgent: '任务编排',
+        KnowledgeAgent: '知识检索',
+      };
+      return mapping[agent] || '执行中';
+    };
+
+    const getToolCategory = (stepText = '') => {
+      const toolName = stepText.replace('工具结果-', '').trim();
+      if (/query_investment_knowledge/i.test(toolName)) return '知识检索';
+      if (/web_search|get_relevant_titles|news/i.test(toolName)) return '新闻检索';
+      if (/stock_|get_stock/i.test(toolName)) return '行情处理';
+      if (/sse|szse/i.test(toolName)) return '交易所数据';
+      return '数据处理';
+    };
+
+    const formatSafeText = (log) => {
+      const text = String(log?.text || '').trim();
+      const step = String(log?.step || '');
+      const hasToolKeyword = /工具|args=|query_investment_knowledge|web_search|get_stock|stock_|news_/i.test(text);
+      if (hasToolKeyword || /工具结果/.test(step)) {
+        return `已完成${getToolCategory(step)}`;
+      }
+      return text || '处理中...';
+    };
+
+    const formatSafeStep = (log, index) => {
+      const step = String(log?.step || '').trim();
+      if (!step) return '';
+      if (/工具结果|工具/.test(step)) {
+        const category = getToolCategory(step);
+        return `数据处理 · ${category} #${index + 1}`;
+      }
+      return step;
+    };
 
     // Close user menu when clicking outside
     useEffect(() => {
@@ -135,10 +176,10 @@ export default function InvestmentAgentApp() {
             const status = await getWorkflowStatus(response.session_id);
             setProgress(status.progress || 0);
             setActiveLogs(
-              (status.logs || []).map((log) => ({
-                agent: log.agent,
-                step: log.step,
-                text: log.text,
+              (status.logs || []).map((log, idx) => ({
+                agent: formatAgentLabel(log.agent),
+                step: formatSafeStep(log, idx),
+                text: formatSafeText(log),
                 status: log.status,
                 timestamp: log.timestamp,
               }))
@@ -226,49 +267,14 @@ export default function InvestmentAgentApp() {
       setIsChatLoading(true);
 
       try {
-        await sendChatMessage(userMsg.text, chatSessionId, 'user');
-      } catch (error) {
-        setIsChatLoading(false);
-        setChatHistory(prev => [...prev, { role: 'ai', text: error.message || '消息发送失败' }]);
-        return;
-      }
-
-      if (chatTimerRef.current) {
-        clearInterval(chatTimerRef.current);
-        chatTimerRef.current = null;
-      }
-
-      try {
         const preferences = {
           risk_preference: riskPreference,
           investment_horizon: investmentHorizon,
         };
-        const response = await startQueryWorkflow(userMsg.text, preferences);
-        chatTimerRef.current = setInterval(async () => {
-          try {
-            const status = await getWorkflowStatus(response.session_id);
-            if (status.status === 'completed') {
-              clearInterval(chatTimerRef.current);
-              chatTimerRef.current = null;
-              const aiText = formatResult(status.result) || '暂无结果';
-              setChatHistory(prev => [...prev, { role: 'ai', text: aiText }]);
-              await sendChatMessage(aiText, chatSessionId, 'assistant');
-              setIsChatLoading(false);
-            }
-            if (status.status === 'failed') {
-              clearInterval(chatTimerRef.current);
-              chatTimerRef.current = null;
-              const errorText = status.error || '查询失败';
-              setChatHistory(prev => [...prev, { role: 'ai', text: errorText }]);
-              setIsChatLoading(false);
-            }
-          } catch (error) {
-            clearInterval(chatTimerRef.current);
-            chatTimerRef.current = null;
-            setChatHistory(prev => [...prev, { role: 'ai', text: error.message || '查询失败' }]);
-            setIsChatLoading(false);
-          }
-        }, 1000);
+        const response = await askChat(userMsg.text, chatSessionId, preferences);
+        const aiText = response?.reply || '暂无结果';
+        setChatHistory(prev => [...prev, { role: 'ai', text: aiText }]);
+        setIsChatLoading(false);
       } catch (error) {
         setChatHistory(prev => [...prev, { role: 'ai', text: error.message || '查询失败' }]);
         setIsChatLoading(false);
@@ -329,6 +335,28 @@ export default function InvestmentAgentApp() {
         lines.push(`新闻覆盖：${news.total_titles} 条，相关 ${news.relevant_count || 0} 条`);
       }
       return lines.join('\n');
+    };
+
+    const escapeHtml = (value) => (
+      value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+    );
+
+    const renderMarkdown = (value) => {
+      if (!value) return '';
+      let html = escapeHtml(String(value));
+      html = html.replace(/^###\s+(.+)$/gm, '<h3>$1</h3>');
+      html = html.replace(/^##\s+(.+)$/gm, '<h2>$1</h2>');
+      html = html.replace(/^#\s+(.+)$/gm, '<h1>$1</h1>');
+      html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      html = html.replace(/\n{2,}/g, '</p><p>');
+      html = html.replace(/\n/g, '<br />');
+      html = `<p>${html}</p>`;
+      return html;
     };
 
     const formatResult = (result) => {
@@ -420,9 +448,9 @@ export default function InvestmentAgentApp() {
                    <div className="relative" ref={userMenuRef}>
                      <button 
                        onClick={() => setShowUserMenu(!showUserMenu)}
-                       className="w-8 h-8 rounded-full bg-gradient-to-br from-red-500 to-orange-600 border-2 border-slate-700 hover:border-red-500 transition-all flex items-center justify-center text-white text-sm font-bold shadow-lg"
+                       className="w-9 h-9 rounded-full bg-gradient-to-br from-red-500 to-orange-600 border-2 border-slate-700 hover:border-red-500 transition-all flex items-center justify-center text-white text-[10px] font-bold shadow-lg px-1 text-center leading-tight"
                      >
-                       {(currentUser?.nickname || currentUser?.username || 'AI')[0]}
+                       {currentUser?.nickname || currentUser?.username || 'AI'}
                      </button>
                    
                      {/* User Dropdown Menu */}
@@ -473,7 +501,11 @@ export default function InvestmentAgentApp() {
             
               {/* Render different views based on viewState */}
               {viewState === 'profile' && (
-                <ProfileView setViewState={setViewState} user={currentUser} />
+                <ProfileView
+                  setViewState={setViewState}
+                  user={currentUser}
+                  onProfileUpdated={setCurrentUser}
+                />
               )}
               {viewState === 'settings' && <SettingsView setViewState={setViewState} />}
             
@@ -616,7 +648,7 @@ export default function InvestmentAgentApp() {
                 <div className="mt-8 grid grid-cols-1 md:grid-cols-12 gap-6 animate-in fade-in slide-in-from-bottom-8 duration-700">
                 
                   {/* 1. Executive Summary (Generated by Gemini) - Span 8 */}
-                  <div className="md:col-span-8 bg-slate-900/60 backdrop-blur-md rounded-2xl border border-white/10 p-6 shadow-xl relative overflow-hidden flex flex-col">
+                  <div className="md:col-span-12 bg-slate-900/60 backdrop-blur-md rounded-2xl border border-white/10 p-6 shadow-xl relative overflow-hidden flex flex-col">
                      <h2 className="text-2xl font-bold text-white mb-4 flex items-center gap-2">
                        投资建议 <Sparkles className="w-5 h-5 text-red-400 animate-pulse" />
                      </h2>
@@ -634,9 +666,12 @@ export default function InvestmentAgentApp() {
                            </div>
                          </div>
                        ) : (
-                         <div className="prose prose-invert prose-sm max-w-none text-slate-300 leading-relaxed whitespace-pre-wrap">
-                           {aiSummary || "分析完成。正在等待 AI 生成报告..."}
-                         </div>
+                         <div
+                           className="prose prose-invert prose-sm max-w-none text-slate-300 leading-relaxed"
+                           dangerouslySetInnerHTML={{
+                             __html: renderMarkdown(aiSummary || '分析完成。正在等待 AI 生成报告...'),
+                           }}
+                         />
                        )}
                      </div>
 
@@ -676,70 +711,12 @@ export default function InvestmentAgentApp() {
                      </div>
                   </div>
 
-                  {/* 2. Sentiment/Metrics - Span 4 */}
-                  <div className="md:col-span-4 bg-slate-900/60 backdrop-blur-md rounded-2xl border border-white/10 p-6 shadow-xl flex flex-col justify-between">
-                     <div>
-                        <h3 className="text-sm font-bold text-slate-400 uppercase mb-4">市场情绪仪表盘</h3>
-                        <div className="flex items-end gap-2 mb-2">
-                           <span className="text-4xl font-bold text-red-500">75</span>
-                           <span className="text-sm text-slate-500 mb-1">/ 100</span>
-                        </div>
-                        <p className="text-sm text-red-500 font-medium mb-6">偏向乐观 (Optimistic)</p>
-                      
-                        <div className="space-y-3">
-                          <div>
-                            <div className="flex justify-between text-xs text-slate-400 mb-1">
-                              <span>新闻舆情</span>
-                              <span className="text-red-400">+12%</span>
-                            </div>
-                            <div className="w-full bg-slate-800/50 h-1.5 rounded-full overflow-hidden">
-                              <div className="bg-red-500 w-[80%] h-full rounded-full"></div>
-                            </div>
-                          </div>
-                          <div>
-                            <div className="flex justify-between text-xs text-slate-400 mb-1">
-                              <span>主力资金 (净流出)</span>
-                              <span className="text-green-400">-3%</span>
-                            </div>
-                            <div className="w-full bg-slate-800/50 h-1.5 rounded-full overflow-hidden">
-                              <div className="bg-green-500 w-[45%] h-full rounded-full"></div>
-                            </div>
-                          </div>
-                        </div>
-                     </div>
-                  </div>
-
                   {/* 3. Interactive Chart - Full Span */}
-                  <StockChart data={MOCK_CHART_DATA} />
-
-                  {/* 4. Citations - Span 7 */}
-                  <div className="md:col-span-7 bg-slate-900/60 backdrop-blur-md rounded-2xl border border-white/10 p-6 shadow-xl">
-                     <h3 className="text-sm font-bold text-slate-400 uppercase mb-4 flex items-center gap-2">
-                       <Database className="w-4 h-4" /> 
-                       参考数据源
-                     </h3>
-                     <div className="space-y-3">
-                       {citations.map((cite, idx) => (
-                         <a key={idx} href={cite.url} className="block group">
-                           <div className="flex items-start justify-between p-3 rounded-lg hover:bg-white/5 transition-colors border border-transparent hover:border-white/10">
-                              <div className="flex gap-3">
-                                 <div className="mt-1">
-                                   <FileText className="w-4 h-4 text-slate-500 group-hover:text-blue-400" />
-                                 </div>
-                                 <div>
-                                   <p className="text-sm font-medium text-slate-300 group-hover:text-white transition-colors">{cite.title}</p>
-                                   <p className="text-xs text-slate-500 mt-1">{cite.source} • {cite.date}</p>
-                                 </div>
-                              </div>
-                              <ArrowRight className="w-4 h-4 text-slate-600 opacity-0 group-hover:opacity-100 transition-all -translate-x-2 group-hover:translate-x-0" />
-                           </div>
-                         </a>
-                       ))}
-                     </div>
+                  <div className="md:col-span-12 bg-slate-900/60 backdrop-blur-md rounded-2xl border border-white/10 p-4 shadow-xl">
+                    <StockChart data={MOCK_CHART_DATA} />
                   </div>
-
-                  {/* 5. Chat with Gemini (New Feature) - Span 5 */}
-                  <div className="md:col-span-5 bg-slate-900/60 backdrop-blur-md rounded-2xl border border-white/10 shadow-xl overflow-hidden flex flex-col h-[320px]">
+                  {/* 4. Chat with Gemini (New Feature) - Span 5 */}
+                  <div className="md:col-span-12 bg-slate-900/60 backdrop-blur-md rounded-2xl border border-white/10 shadow-xl overflow-hidden flex flex-col h-[320px]">
                      <div className="p-4 border-b border-white/10 bg-white/5 flex justify-between items-center">
                        <h3 className="text-white font-bold flex items-center gap-2">
                          <MessageSquare className="w-4 h-4 text-red-400" />

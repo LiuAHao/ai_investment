@@ -236,35 +236,14 @@ class AgentWorkflowExecutor:
                 step_base = 55
                 step_span = 25
                 step_count = len(tool_results)
-
-                def format_args(value: object) -> str:
-                    try:
-                        text = json.dumps(value or {}, ensure_ascii=False, default=str)
-                    except Exception:
-                        text = "{}"
-                    return text if len(text) <= 160 else f"{text[:160]}..."
-
                 for idx, tool in enumerate(tool_results, start=1):
                     name = tool.get("name", "tool")
-                    args = tool.get("args", {})
-                    result = tool.get("result", {})
-                    msg = f"工具 {name} 完成"
-                    args_text = format_args(args)
-                    if args_text and args_text != "{}":
-                        msg += f", args={args_text}"
-                    if isinstance(result, dict):
-                        rows = result.get("rows")
-                        if rows is not None:
-                            msg += f", rows={rows}"
-                        else:
-                            keys = list(result.keys())
-                            if keys:
-                                msg += f", keys={keys[:6]}"
-                    elif isinstance(result, list):
-                        msg += f", items={len(result)}"
+                    msg = "工具执行完成"
 
                     progress = step_base + int(step_span * idx / step_count)
                     self._log("DecisionAgent", f"工具结果-{name}", "completed", msg, progress)
+
+            self._log("DecisionAgent", "结果生成", "active", "正在生成查询结果...", 85)
 
             result_text = self.master_agent.expert_agent.summarize(
                 user_query, tool_results, preferences

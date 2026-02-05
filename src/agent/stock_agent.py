@@ -20,7 +20,9 @@ from stock.stock_api import (
     get_stock_sse_deal_daily,
     get_stock_sse_summary,
     get_stock_szse_summary,
+    get_stock_zh_a_daily,
     get_stock_zh_a_hist,
+    get_stock_zh_a_hist_tx,
     get_stock_zh_a_spot_em,
 )
 
@@ -88,9 +90,11 @@ class StockAgent:
         """
         start = start_date or self.default_start_date
         end = end_date or self.default_end_date
+        norm_symbol = self._normalize_symbol(symbol)
         logger.info(
-            "股票Agent: 获取历史行情, symbol=%s, start=%s, end=%s, period=%s, adjust=%s",
+            "股票Agent: 获取历史行情, symbol=%s, normalized=%s, start=%s, end=%s, period=%s, adjust=%s",
             symbol,
+            norm_symbol,
             start,
             end,
             period,
@@ -98,8 +102,8 @@ class StockAgent:
         )
         try:
             with self._without_proxy():
-                df = get_stock_zh_a_hist(
-                    symbol=symbol,
+                df = self._fetch_hist_with_fallback(
+                    symbol=norm_symbol,
                     start_date=start,
                     end_date=end,
                     period=period,
@@ -121,6 +125,57 @@ class StockAgent:
             summary["head"] = df.head(3).to_dict(orient="records")
         logger.info("股票Agent: 获取历史行情完成, rows=%s", len(df))
         return summary
+
+    def _fetch_hist_with_fallback(
+        self,
+        symbol: str,
+        start_date: str,
+        end_date: str,
+        period: str,
+        adjust: str,
+    ):
+        """
+        历史行情获取，按数据源降级回退
+        优先：东方财富 -> 腾讯 -> 新浪
+        """
+        df = get_stock_zh_a_hist(
+            symbol=symbol,
+            start_date=start_date,
+            end_date=end_date,
+            period=period,
+            adjust=adjust,
+        )
+        if df is not None and len(df) > 0:
+            return df
+
+        logger.warning("股票Agent: 东方财富返回空数据，尝试腾讯历史数据")
+        try:
+            df = get_stock_zh_a_hist_tx(symbol=symbol, adjust=adjust)
+        except Exception:
+            df = None
+        if df is not None and len(df) > 0:
+            return df
+
+        logger.warning("股票Agent: 腾讯返回空数据，尝试新浪日线数据")
+        try:
+            df = get_stock_zh_a_daily(symbol=symbol, adjust=adjust)
+        except Exception:
+            df = None
+        return df
+
+    @staticmethod
+    def _normalize_symbol(symbol: str) -> str:
+        """
+        统一股票代码格式为 6 位数字，兼容 SH/SZ/BJ 与 .SH/.SZ/.SS 后缀
+        """
+        if not symbol:
+            return symbol
+        value = str(symbol).strip().upper()
+        if value.endswith((".SH", ".SZ", ".SS", ".BJ")):
+            value = value.split(".")[0]
+        if value.startswith(("SH", "SZ", "BJ")):
+            value = value[2:]
+        return value
 
     def fetch_spot_em(self, symbols: Optional[list] = None, limit: int = 50) -> Dict:
         """
@@ -266,9 +321,11 @@ class StockAgent:
         """
         start = start_date or self.default_start_date
         end = end_date or self.default_end_date
+        norm_symbol = self._normalize_symbol(symbol)
         logger.info(
-            "股票Agent: 分析历史行情, symbol=%s, start=%s, end=%s, period=%s, adjust=%s",
+            "股票Agent: 分析历史行情, symbol=%s, normalized=%s, start=%s, end=%s, period=%s, adjust=%s",
             symbol,
+            norm_symbol,
             start,
             end,
             period,
@@ -276,8 +333,8 @@ class StockAgent:
         )
         try:
             with self._without_proxy():
-                df = get_stock_zh_a_hist(
-                    symbol=symbol,
+                df = self._fetch_hist_with_fallback(
+                    symbol=norm_symbol,
                     start_date=start,
                     end_date=end,
                     period=period,
@@ -288,6 +345,15 @@ class StockAgent:
             return {"symbol": symbol, "rows": 0, "error": str(exc)}
 
         if df is None or len(df) == 0:
+            logger.warning(
+                "股票Agent: 分析历史行情为空, symbol=%s, normalized=%s, start=%s, end=%s, period=%s, adjust=%s",
+                symbol,
+                norm_symbol,
+                start,
+                end,
+                period,
+                adjust,
+            )
             return {"symbol": symbol, "rows": 0}
 
         def pick_col(candidates):
@@ -385,9 +451,11 @@ class StockAgent:
         """
         start = start_date or self.default_start_date
         end = end_date or self.default_end_date
+        norm_symbol = self._normalize_symbol(symbol)
         logger.info(
-            "股票Agent: 计算技术指标, symbol=%s, start=%s, end=%s, period=%s, adjust=%s",
+            "股票Agent: 计算技术指标, symbol=%s, normalized=%s, start=%s, end=%s, period=%s, adjust=%s",
             symbol,
+            norm_symbol,
             start,
             end,
             period,
@@ -396,8 +464,8 @@ class StockAgent:
 
         try:
             with self._without_proxy():
-                df = get_stock_zh_a_hist(
-                    symbol=symbol,
+                df = self._fetch_hist_with_fallback(
+                    symbol=norm_symbol,
                     start_date=start,
                     end_date=end,
                     period=period,
@@ -408,6 +476,15 @@ class StockAgent:
             return {"symbol": symbol, "rows": 0, "error": str(exc)}
 
         if df is None or len(df) == 0:
+            logger.warning(
+                "股票Agent: 技术指标数据为空, symbol=%s, normalized=%s, start=%s, end=%s, period=%s, adjust=%s",
+                symbol,
+                norm_symbol,
+                start,
+                end,
+                period,
+                adjust,
+            )
             return {"symbol": symbol, "rows": 0}
 
         def pick_col(candidates):

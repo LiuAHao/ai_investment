@@ -20,7 +20,7 @@ if PROJECT_ROOT not in sys.path:
 
 from models import init_db, get_db
 from models.database import User
-from api.auth import auth_bp
+from api.auth import auth_bp, hash_password
 from api.agent import agent_bp
 from api.stock import stock_bp
 from api.news import news_bp
@@ -70,6 +70,7 @@ def create_app():
                 "id": user.id,
                 "username": user.username,
                 "email": user.email,
+                "phone": user.phone,
                 "nickname": user.nickname,
                 "created_at": user.created_at.isoformat() if user.created_at else None,
             }
@@ -114,11 +115,82 @@ def create_app():
                             "id": user_in_db.id,
                             "username": user_in_db.username,
                             "email": user_in_db.email,
+                            "phone": user_in_db.phone,
                             "nickname": user_in_db.nickname,
                         },
                     }
                 ), 200
 
+            except Exception as e:
+                db.rollback()
+                return jsonify({"error": f"更新失败: {str(e)}"}), 500
+
+    @app.route("/api/user/phone", methods=["PUT"])
+    def update_phone():
+        """更新手机号"""
+        user = get_current_user()
+        if not user:
+            return jsonify({"error": "未授权"}), 401
+
+        data = request.get_json() or {}
+        phone = str(data.get("phone") or "").strip()
+        if not phone:
+            return jsonify({"error": "手机号不能为空"}), 400
+
+        with get_db() as db:
+            try:
+                user_in_db = db.query(User).filter_by(id=user.id).first()
+                if not user_in_db:
+                    return jsonify({"error": "用户不存在"}), 404
+
+                user_in_db.phone = phone
+                db.commit()
+
+                return jsonify(
+                    {
+                        "message": "手机号更新成功",
+                        "user": {
+                            "id": user_in_db.id,
+                            "username": user_in_db.username,
+                            "email": user_in_db.email,
+                            "phone": user_in_db.phone,
+                            "nickname": user_in_db.nickname,
+                        },
+                    }
+                ), 200
+            except Exception as e:
+                db.rollback()
+                return jsonify({"error": f"更新失败: {str(e)}"}), 500
+
+    @app.route("/api/user/password", methods=["PUT"])
+    def update_password():
+        """更新密码"""
+        user = get_current_user()
+        if not user:
+            return jsonify({"error": "未授权"}), 401
+
+        data = request.get_json() or {}
+        current_password = str(data.get("current_password") or "")
+        new_password = str(data.get("new_password") or "")
+
+        if not current_password or not new_password:
+            return jsonify({"error": "缺少必要字段"}), 400
+        if len(new_password) < 6:
+            return jsonify({"error": "新密码长度不能少于 6 位"}), 400
+
+        with get_db() as db:
+            try:
+                user_in_db = db.query(User).filter_by(id=user.id).first()
+                if not user_in_db:
+                    return jsonify({"error": "用户不存在"}), 404
+
+                if user_in_db.password_hash != hash_password(current_password):
+                    return jsonify({"error": "原密码错误"}), 400
+
+                user_in_db.password_hash = hash_password(new_password)
+                db.commit()
+
+                return jsonify({"message": "密码更新成功"}), 200
             except Exception as e:
                 db.rollback()
                 return jsonify({"error": f"更新失败: {str(e)}"}), 500
