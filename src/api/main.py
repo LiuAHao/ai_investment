@@ -7,6 +7,7 @@ Flask API 主应用
 
 import os
 import sys
+import time
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import logging
@@ -27,8 +28,11 @@ from api.news import news_bp
 from api.chat import chat_bp
 from api.auth import get_current_user
 
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    force=True,
 )
 logger = logging.getLogger(__name__)
 
@@ -37,6 +41,9 @@ def create_app():
     """创建Flask应用"""
     app = Flask(__name__)
     CORS(app)
+
+    app.logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
+    logging.getLogger("werkzeug").setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
 
     app.config["SECRET_KEY"] = "your-secret-key-change-in-production"
 
@@ -57,6 +64,23 @@ def create_app():
     @app.route("/api/health")
     def health():
         return jsonify({"status": "ok"})
+
+    @app.before_request
+    def _log_request_start():
+        request._start_time = time.time()
+
+    @app.after_request
+    def _log_request_end(response):
+        start_time = getattr(request, "_start_time", None)
+        duration_ms = int((time.time() - start_time) * 1000) if start_time else -1
+        logger.info(
+            "HTTP %s %s -> %s (%sms)",
+            request.method,
+            request.path,
+            response.status_code,
+            duration_ms,
+        )
+        return response
 
     @app.route("/api/user/profile", methods=["GET"])
     def get_profile():
@@ -201,7 +225,7 @@ def create_app():
 
     @app.errorhandler(500)
     def internal_error(error):
-        logger.error(f"内部错误: {str(error)}")
+        logger.exception(f"内部错误: {str(error)}")
         return jsonify({"error": "服务器内部错误"}), 500
 
     @app.errorhandler(401)
@@ -213,4 +237,6 @@ def create_app():
 
 if __name__ == "__main__":
     app = create_app()
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    debug_mode = os.getenv("FLASK_DEBUG", "1") == "1"
+    use_reloader = os.getenv("FLASK_USE_RELOADER", "0") == "1"
+    app.run(host="0.0.0.0", port=5000, debug=debug_mode, use_reloader=use_reloader)

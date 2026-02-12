@@ -138,13 +138,17 @@ class StockAgent:
         历史行情获取，按数据源降级回退
         优先：东方财富 -> 腾讯 -> 新浪
         """
-        df = get_stock_zh_a_hist(
-            symbol=symbol,
-            start_date=start_date,
-            end_date=end_date,
-            period=period,
-            adjust=adjust,
-        )
+        try:
+            df = get_stock_zh_a_hist(
+                symbol=symbol,
+                start_date=start_date,
+                end_date=end_date,
+                period=period,
+                adjust=adjust,
+            )
+        except Exception as exc:
+            logger.warning("股票Agent: 东方财富请求异常，进入回退流程, error=%s", str(exc))
+            df = None
         if df is not None and len(df) > 0:
             return df
 

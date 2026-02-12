@@ -2,13 +2,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Search, Cpu, Globe, Database, Settings, MessageSquare, 
   Loader2, Sparkles, Send, User, LogOut, FileText, ArrowRight,
-  ChevronUp, ChevronDown, TrendingUp
+  TrendingUp
 } from 'lucide-react';
-import { MOCK_CHART_DATA } from './services/mockService';
 import AgentStatusNode from './components/ui/AgentStatusNode';
 import ProgressBar from './components/ui/ProgressBar';
 import QuickStarter from './components/ui/QuickStarter';
-import StockChart from './components/dashboard/StockChart';
 import ProfileView from './components/views/ProfileView';
 import SettingsView from './components/views/SettingsView';
 import LandingView from './components/views/LandingView';
@@ -31,7 +29,6 @@ export default function InvestmentAgentApp() {
     const [viewState, setViewState] = useState('landing');
     const [progress, setProgress] = useState(0);
     const [activeLogs, setActiveLogs] = useState([]);
-    const [isLogExpanded, setIsLogExpanded] = useState(true);
     const [showSettings, setShowSettings] = useState(false);
     const [showUserMenu, setShowUserMenu] = useState(false);
     const [currentUser, setCurrentUser] = useState(null);
@@ -39,7 +36,7 @@ export default function InvestmentAgentApp() {
     const [chatSessionId, setChatSessionId] = useState('default');
     const [analysisResult, setAnalysisResult] = useState(null);
     const [riskPreference, setRiskPreference] = useState('稳健型 (蓝筹/红利)');
-    const [investmentHorizon, setInvestmentHorizon] = useState('超短线 (打板/T+0)');
+    const [appMode, setAppMode] = useState('使用模式');
     const workflowTimerRef = useRef(null);
     const chatTimerRef = useRef(null);
   
@@ -50,7 +47,6 @@ export default function InvestmentAgentApp() {
     const [chatHistory, setChatHistory] = useState([]);
     const [isChatLoading, setIsChatLoading] = useState(false);
 
-    const logsEndRef = useRef(null);
     const chatEndRef = useRef(null);
     const userMenuRef = useRef(null);
 
@@ -116,6 +112,50 @@ export default function InvestmentAgentApp() {
       return step;
     };
 
+    const normalizeStageStatus = (status) => {
+      if (status === 'completed' || status === 'done') return 'done';
+      if (status === 'active' || status === 'processing') return 'active';
+      if (status === 'failed') return 'failed';
+      return 'pending';
+    };
+
+    const deriveStageProgress = () => {
+      const stage = {
+        planning: 'pending',
+        execution: 'pending',
+        summarize: 'pending',
+      };
+
+      for (const log of activeLogs) {
+        const step = String(log?.step || '');
+        const status = normalizeStageStatus(log?.status);
+
+        if (/初始化|任务分解/.test(step)) {
+          stage.planning = status === 'pending' ? stage.planning : status;
+        }
+        if (/阶段执行|数据/.test(step)) {
+          if (status === 'failed') {
+            stage.execution = 'failed';
+          } else if (status === 'active' && stage.execution !== 'failed') {
+            stage.execution = 'active';
+          } else if (status === 'done' && stage.execution !== 'failed') {
+            stage.execution = 'done';
+          }
+        }
+        if (/结果生成|结果汇总/.test(step)) {
+          stage.summarize = status === 'pending' ? stage.summarize : status;
+        }
+      }
+
+      if (progress >= 20 && stage.planning === 'pending') stage.planning = 'done';
+      if (progress >= 45 && stage.execution === 'pending') stage.execution = 'active';
+      if (progress >= 80 && stage.execution === 'active') stage.execution = 'done';
+      if (progress >= 90 && stage.summarize === 'pending') stage.summarize = 'active';
+      if (progress >= 100) stage.summarize = 'done';
+
+      return stage;
+    };
+
     // Close user menu when clicking outside
     useEffect(() => {
       const handleClickOutside = (event) => {
@@ -163,7 +203,8 @@ export default function InvestmentAgentApp() {
         const isSymbol = /^(?:\d{6}|[A-Za-z]{2}\d{6}|\d{6}\.(?:SZ|SS))$/i.test(trimmedQuery);
           const preferences = {
             risk_preference: riskPreference,
-            investment_horizon: investmentHorizon,
+            debug_mode: appMode === '调试模式',
+            app_mode: appMode,
           };
           const response = isSymbol
             ? await startAnalyzeWorkflow(trimmedQuery, 20, preferences)
@@ -178,6 +219,7 @@ export default function InvestmentAgentApp() {
             setActiveLogs(
               (status.logs || []).map((log, idx) => ({
                 agent: formatAgentLabel(log.agent),
+                rawAgent: log.agent,
                 step: formatSafeStep(log, idx),
                 text: formatSafeText(log),
                 status: log.status,
@@ -219,12 +261,6 @@ export default function InvestmentAgentApp() {
         setAiSummary(error.message || '启动分析失败');
       }
     };
-
-    useEffect(() => {
-      if (logsEndRef.current) {
-        logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
-      }
-    }, [activeLogs]);
 
     // Feature 1: Generate Executive Summary via Gemini
     const loadCitations = (result) => {
@@ -269,7 +305,8 @@ export default function InvestmentAgentApp() {
       try {
         const preferences = {
           risk_preference: riskPreference,
-          investment_horizon: investmentHorizon,
+          debug_mode: appMode === '调试模式',
+          app_mode: appMode,
         };
         const response = await askChat(userMsg.text, chatSessionId, preferences);
         const aiText = response?.reply || '暂无结果';
@@ -555,7 +592,7 @@ export default function InvestmentAgentApp() {
                   {/* Config Panel Popover */}
                   {showSettings && (
                      <div className="absolute top-full mt-2 left-0 right-0 bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-xl p-4 shadow-xl z-50 animate-in fade-in slide-in-from-top-2">
-                       <div className="grid grid-cols-2 gap-4">
+                       <div className="grid grid-cols-1 gap-4">
                           <div>
                             <label className="text-xs text-slate-500 uppercase font-bold mb-2 block">风险偏好</label>
                             <select
@@ -568,16 +605,18 @@ export default function InvestmentAgentApp() {
                             </select>
                           </div>
                           <div>
-                            <label className="text-xs text-slate-500 uppercase font-bold mb-2 block">投资周期</label>
+                            <label className="text-xs text-slate-500 uppercase font-bold mb-2 block">运行模式</label>
                             <select
                               className="w-full bg-slate-800 border border-slate-700 text-sm rounded-md p-2 text-slate-300"
-                              value={investmentHorizon}
-                              onChange={(e) => setInvestmentHorizon(e.target.value)}
+                              value={appMode}
+                              onChange={(e) => setAppMode(e.target.value)}
                             >
-                              <option>超短线 (打板/T+0)</option>
-                              <option>波段操作 (周级别)</option>
-                              <option>价值长持 (年级别)</option>
+                              <option>使用模式</option>
+                              <option>调试模式</option>
                             </select>
+                            <p className="text-[11px] text-slate-500 mt-2">
+                              使用模式隐藏内部异常细节；调试模式会展示链路与缺失原因。
+                            </p>
                           </div>
                        </div>
                      </div>
@@ -598,48 +637,37 @@ export default function InvestmentAgentApp() {
               {/* --- Process Visualization (The "Wait" State) --- */}
               {appState === 'processing' && (
                 <div className="max-w-4xl mx-auto mt-12 animate-in fade-in duration-500">
+                  {(() => {
+                    const stage = deriveStageProgress();
+
+                    return (
+                      <>
                   {/* Agent Workflow Map */}
                   <div className="flex justify-between items-center mb-8 px-8 md:px-16">
-                     <AgentStatusNode icon={Database} label="数据获取" status={progress > 10 ? (progress > 30 ? 'done' : 'active') : 'pending'} />
+                     <AgentStatusNode
+                       icon={Database}
+                       label="任务分解"
+                       status={stage.planning === 'done' ? 'done' : stage.planning === 'active' ? 'active' : 'pending'}
+                     />
                      <div className="h-0.5 flex-1 bg-slate-800 mx-2"></div>
-                     <AgentStatusNode icon={Globe} label="数据分析" status={progress > 30 ? (progress > 60 ? 'done' : 'active') : 'pending'} />
+                     <AgentStatusNode
+                       icon={Globe}
+                       label="数据执行"
+                       status={stage.execution === 'done' ? 'done' : stage.execution === 'active' ? 'active' : 'pending'}
+                     />
                      <div className="h-0.5 flex-1 bg-slate-800 mx-2"></div>
-                     <AgentStatusNode icon={Cpu} label="策略生成" status={progress > 60 ? (progress >= 100 ? 'done' : 'active') : 'pending'} />
+                     <AgentStatusNode
+                       icon={Cpu}
+                       label="结果生成"
+                       status={stage.summarize === 'done' ? 'done' : stage.summarize === 'active' ? 'active' : 'pending'}
+                     />
                   </div>
 
-                  {/* Thinking Chain (CoT) */}
-                  <div className="bg-slate-900/60 backdrop-blur-md rounded-xl border border-white/10 overflow-hidden shadow-2xl">
-                    <div 
-                      className="bg-white/5 px-4 py-2 flex items-center justify-between cursor-pointer"
-                      onClick={() => setIsLogExpanded(!isLogExpanded)}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
-                        <span className="text-sm font-medium text-slate-300">Agent Thinking Chain</span>
-                      </div>
-                      {isLogExpanded ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
-                    </div>
-                  
-                    {isLogExpanded && (
-                      <div className="p-4 h-56 overflow-y-auto font-mono text-xs md:text-sm space-y-2 bg-transparent">
-                        {activeLogs.map((log, idx) => (
-                          <div key={idx} className="flex gap-3 items-start animate-in fade-in slide-in-from-left-2">
-                            <div className="text-blue-400 w-28 shrink-0 leading-5">[{log.agent}]</div>
-                            <div className="min-w-0 flex-1">
-                              {log.step && (
-                                <div className="text-slate-500 text-[11px] mb-0.5">{log.step}</div>
-                              )}
-                              <div className="text-slate-300 break-words whitespace-pre-wrap">{log.text}</div>
-                            </div>
-                          </div>
-                        ))}
-                        <div ref={logsEndRef} />
-                      </div>
-                    )}
-                  </div>
-                
                   <ProgressBar progress={progress} />
                   <p className="text-center text-slate-500 text-sm mt-4 animate-pulse">正在编排多智能体网络...</p>
+                      </>
+                    );
+                  })()}
                 </div>
               )}
 
@@ -675,47 +703,9 @@ export default function InvestmentAgentApp() {
                        )}
                      </div>
 
-                     <div className="flex gap-4 mt-6 border-t border-white/10 pt-6 overflow-x-auto">
-                       <div className="bg-slate-800/40 rounded-lg p-3 flex-1 border border-white/5 min-w-[100px]">
-                         <p className="text-slate-500 text-xs uppercase font-bold mb-1">当前股价</p>
-                         <p className="text-xl font-mono text-white">
-                           {analysisResult?.stock_summary?.latest_close !== undefined
-                             ? `¥${Number(analysisResult.stock_summary.latest_close).toFixed(2)}`
-                             : '—'}
-                         </p>
-                       </div>
-                       <div className="bg-slate-800/40 rounded-lg p-3 flex-1 border border-white/5 min-w-[100px]">
-                         <p className="text-slate-500 text-xs uppercase font-bold mb-1">压力位</p>
-                         <p className="text-xl font-mono text-white">
-                           {analysisResult?.stock_summary?.high_max !== undefined
-                             ? `¥${Number(analysisResult.stock_summary.high_max).toFixed(2)}`
-                             : '—'}
-                         </p>
-                       </div>
-                       <div className="bg-slate-800/40 rounded-lg p-3 flex-1 border border-white/5 min-w-[100px]">
-                         <p className="text-slate-500 text-xs uppercase font-bold mb-1">止损位</p>
-                         <p className="text-xl font-mono text-green-400">
-                           {analysisResult?.stock_summary?.low_min !== undefined
-                             ? `¥${Number(analysisResult.stock_summary.low_min).toFixed(2)}`
-                             : '—'}
-                         </p>
-                       </div>
-                       <div className="bg-slate-800/40 rounded-lg p-3 flex-1 border border-white/5 min-w-[100px]">
-                         <p className="text-slate-500 text-xs uppercase font-bold mb-1">风险等级</p>
-                         <p className="text-xl font-mono text-yellow-400">
-                           {analysisResult?.stock_summary?.volatility_pct !== undefined
-                             ? `${analysisResult.stock_summary.volatility_pct}%`
-                             : '—'}
-                         </p>
-                       </div>
-                     </div>
                   </div>
 
-                  {/* 3. Interactive Chart - Full Span */}
-                  <div className="md:col-span-12 bg-slate-900/60 backdrop-blur-md rounded-2xl border border-white/10 p-4 shadow-xl">
-                    <StockChart data={MOCK_CHART_DATA} />
-                  </div>
-                  {/* 4. Chat with Gemini (New Feature) - Span 5 */}
+                  {/* 3. Chat with Gemini (New Feature) - Span 5 */}
                   <div className="md:col-span-12 bg-slate-900/60 backdrop-blur-md rounded-2xl border border-white/10 shadow-xl overflow-hidden flex flex-col h-[320px]">
                      <div className="p-4 border-b border-white/10 bg-white/5 flex justify-between items-center">
                        <h3 className="text-white font-bold flex items-center gap-2">

@@ -108,72 +108,49 @@ class AgentWorkflowExecutor:
                 session.progress = 5
                 self.db.commit()
 
-            self._log(
-                "StockAgent",
-                "数据获取",
-                "active",
-                f"正在获取 {symbol} 的股票历史数据...",
-                10,
-            )
-            stock_summary = self.master_agent.stock_agent.analyze_daily_hist(
-                symbol=symbol
-            )
-            self._log(
-                "StockAgent",
-                "数据获取",
-                "completed",
-                f"成功获取 {symbol} 股票数据，共 {stock_summary.get('rows', 0)} 条记录",
-                25,
+            self._log("MasterAgent", "任务分解", "active", "正在生成任务计划...", 15)
+            workflow_result = self.master_agent.execute_phase2(
+                user_query=f"分析股票 {symbol}",
+                preferences=preferences,
             )
 
-            self._log("StockAgent", "技术分析", "active", "正在计算技术指标...", 35)
-            tech_indicators = (
-                self.master_agent.stock_agent.analyze_technical_indicators(
-                    symbol=symbol
-                )
-            )
-            self._log("StockAgent", "技术分析", "completed", "技术指标计算完成", 45)
-
-            self._log("NewsAgent", "新闻获取", "skipped", "主工作流已关闭新闻标题获取", 65)
-            relevant_news = {
-                "total_titles": 0,
-                "relevant_titles": [],
+            result_map = {
+                item.get("agent"): item
+                for item in workflow_result.get("agent_results", [])
             }
 
-            self._log("DecisionAgent", "决策分析", "active", "正在生成投资建议...", 85)
+            progress_cursor = 30
+            for agent_name in ["StockAgent", "NewsAgent", "KnowledgeAgent", "AnalysisAgent"]:
+                item = result_map.get(agent_name)
+                if not item:
+                    continue
+                status = item.get("status", "failed")
+                log_status = "completed" if status == "completed" else ("skipped" if status == "skipped" else "failed")
+                text = "阶段完成"
+                if status == "failed":
+                    text = f"阶段失败: {item.get('error') or '未知错误'}"
+                elif status == "skipped":
+                    text = item.get("error") or "阶段跳过"
+                self._log(agent_name, "阶段执行", log_status, text, progress_cursor)
+                progress_cursor += 15
 
-            tool_results = [
-                {
-                    "name": "stock_analysis",
-                    "args": {"symbol": symbol},
-                    "result": stock_summary,
-                },
-                {
-                    "name": "stock_tech",
-                    "args": {"symbol": symbol},
-                    "result": tech_indicators,
-                },
-            ]
-            recommendation = self.master_agent.expert_agent.summarize(
-                f"分析股票 {symbol}",
-                tool_results,
-                preferences,
-            )
+            data_payload = result_map.get("StockAgent", {}).get("data", {})
+            news_payload = result_map.get("NewsAgent", {}).get("data", {})
+            recommendation = workflow_result.get("recommendation", "")
 
             result = {
                 "symbol": symbol,
-                "stock_summary": stock_summary,
-                "tech_indicators": tech_indicators,
-                "news_summary": {
-                    "total_titles": 0,
-                    "relevant_count": 0,
-                    "relevant_titles": [],
-                },
+                "stock_summary": data_payload.get("summary", {}),
+                "tech_indicators": data_payload.get("technical", {}),
+                "news_summary": news_payload,
                 "recommendation": recommendation,
+                "degraded": workflow_result.get("degraded", False),
+                "task_plan": workflow_result.get("task_plan", {}),
+                "agent_results": workflow_result.get("agent_results", []),
                 "timestamp": datetime.now().isoformat(),
             }
 
-            self._log("DecisionAgent", "决策分析", "completed", "投资建议生成完成", 100)
+            self._log("MasterAgent", "结果汇总", "completed", "投资建议生成完成", 100)
 
             self.status = "completed"
             self.result = result
@@ -225,34 +202,43 @@ class AgentWorkflowExecutor:
                 session.progress = 5
                 self.db.commit()
 
-            self._log("DecisionAgent", "任务拆解", "active", "正在分析用户查询...", 20)
+            self._log("MasterAgent", "任务拆解", "active", "正在分析用户查询...", 20)
 
-            self._log(
-                "DecisionAgent", "工具调用", "active", "正在调用数据获取工具...", 50
+            workflow_result = self.master_agent.execute_phase2(
+                user_query=user_query,
+                preferences=preferences,
             )
 
-            tool_results = self.master_agent.decision_agent.run_tools(user_query)
-            if tool_results:
-                step_base = 55
-                step_span = 25
-                step_count = len(tool_results)
-                for idx, tool in enumerate(tool_results, start=1):
-                    name = tool.get("name", "tool")
-                    msg = "工具执行完成"
+            result_map = {
+                item.get("agent"): item
+                for item in workflow_result.get("agent_results", [])
+            }
+            progress_cursor = 45
+            for agent_name in ["StockAgent", "NewsAgent", "KnowledgeAgent", "AnalysisAgent"]:
+                item = result_map.get(agent_name)
+                if not item:
+                    continue
+                status = item.get("status", "failed")
+                log_status = "completed" if status == "completed" else ("skipped" if status == "skipped" else "failed")
+                msg = "阶段执行完成"
+                if status == "failed":
+                    msg = f"阶段失败: {item.get('error') or '未知错误'}"
+                elif status == "skipped":
+                    msg = item.get("error") or "阶段跳过"
+                self._log(agent_name, "阶段执行", log_status, msg, progress_cursor)
+                progress_cursor += 12
 
-                    progress = step_base + int(step_span * idx / step_count)
-                    self._log("DecisionAgent", f"工具结果-{name}", "completed", msg, progress)
-
-            self._log("DecisionAgent", "结果生成", "active", "正在生成查询结果...", 85)
-
-            result_text = self.master_agent.expert_agent.summarize(
-                user_query, tool_results, preferences
-            )
-
-            self._log("DecisionAgent", "结果生成", "completed", "查询结果生成完成", 100)
+            self._log("MasterAgent", "结果生成", "active", "正在生成查询结果...", 92)
+            result_text = workflow_result.get("recommendation", "")
+            self._log("MasterAgent", "结果生成", "completed", "查询结果生成完成", 100)
 
             self.status = "completed"
-            self.result = {"response": result_text}
+            self.result = {
+                "response": result_text,
+                "degraded": workflow_result.get("degraded", False),
+                "task_plan": workflow_result.get("task_plan", {}),
+                "agent_results": workflow_result.get("agent_results", []),
+            }
             self.progress = 100
 
             if session:
