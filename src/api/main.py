@@ -63,7 +63,16 @@ def create_app():
 
     @app.route("/api/health")
     def health():
-        return jsonify({"status": "ok"})
+        from api.agent_executor import AgentWorkflowExecutor
+        executor_count = len(AgentWorkflowExecutor._executors)
+        processing_count = len([e for e in AgentWorkflowExecutor._executors.values() if e.status == "processing"])
+        return jsonify({
+            "status": "ok",
+            "agents": {
+                "active_executors": executor_count,
+                "processing": processing_count,
+            },
+        })
 
     @app.before_request
     def _log_request_start():
@@ -89,6 +98,10 @@ def create_app():
         if not user:
             return jsonify({"error": "未授权"}), 401
 
+        from utils.quota_manager import quota_manager
+        user_tier = getattr(user, "user_tier", "free") or "free"
+        quota_status = quota_manager.get_quota_status(user.id, user_tier)
+
         return jsonify(
             {
                 "id": user.id,
@@ -96,6 +109,8 @@ def create_app():
                 "email": user.email,
                 "phone": user.phone,
                 "nickname": user.nickname,
+                "user_tier": user_tier,
+                "quota": quota_status,
                 "created_at": user.created_at.isoformat() if user.created_at else None,
             }
         ), 200
@@ -223,6 +238,10 @@ def create_app():
     def not_found(error):
         return jsonify({"error": "资源不存在"}), 404
 
+    @app.errorhandler(429)
+    def too_many_requests(error):
+        return jsonify({"error": "请求过于频繁，请稍后再试"}), 429
+
     @app.errorhandler(500)
     def internal_error(error):
         logger.exception(f"内部错误: {str(error)}")
@@ -231,6 +250,66 @@ def create_app():
     @app.errorhandler(401)
     def unauthorized(error):
         return jsonify({"error": "未授权"}), 401
+
+    # ── 配额与升级相关路由 ──
+
+    @app.route("/api/user/quota", methods=["GET"])
+    def get_quota():
+        """获取用户配额使用情况"""
+        user = get_current_user()
+        if not user:
+            return jsonify({"error": "未授权"}), 401
+
+        from utils.quota_manager import quota_manager
+        user_tier = getattr(user, "user_tier", "free") or "free"
+        quota_status = quota_manager.get_quota_status(user.id, user_tier)
+        return jsonify(quota_status), 200
+
+    @app.route("/api/user/tiers", methods=["GET"])
+    def get_tiers():
+        """获取所有等级信息"""
+        from utils.quota_manager import quota_manager
+        tiers = quota_manager.get_all_tiers()
+        return jsonify({"tiers": tiers}), 200
+
+    @app.route("/api/user/upgrade", methods=["POST"])
+    def upgrade_tier():
+        """升级用户等级"""
+        user = get_current_user()
+        if not user:
+            return jsonify({"error": "未授权"}), 401
+
+        data = request.get_json() or {}
+        target_tier = data.get("tier", "").strip().lower()
+
+        valid_tiers = ["free", "pro", "premium"]
+        if target_tier not in valid_tiers:
+            return jsonify({"error": f"无效的等级，可选: {', '.join(valid_tiers)}"}), 400
+
+        from utils.quota_manager import TIER_LABELS
+        current_tier = getattr(user, "user_tier", "free") or "free"
+        tier_order = {"free": 0, "pro": 1, "premium": 2}
+        if tier_order.get(target_tier, 0) <= tier_order.get(current_tier, 0):
+            return jsonify({"error": "目标等级不能低于或等于当前等级"}), 400
+
+        # 实际项目中此处应对接支付系统，目前直接升级
+        with get_db() as db:
+            try:
+                user_in_db = db.query(User).filter_by(id=user.id).first()
+                if not user_in_db:
+                    return jsonify({"error": "用户不存在"}), 404
+
+                user_in_db.user_tier = target_tier
+                db.commit()
+
+                return jsonify({
+                    "message": f"已升级到{TIER_LABELS.get(target_tier, target_tier)}",
+                    "user_tier": target_tier,
+                    "tier_label": TIER_LABELS.get(target_tier, target_tier),
+                }), 200
+            except Exception as e:
+                db.rollback()
+                return jsonify({"error": f"升级失败: {str(e)}"}), 500
 
     return app
 

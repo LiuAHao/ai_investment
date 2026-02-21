@@ -66,6 +66,7 @@ def register():
                         "email": user.email,
                         "phone": user.phone,
                         "nickname": user.nickname,
+                        "user_tier": getattr(user, "user_tier", "free") or "free",
                     },
                 }
             ), 201
@@ -110,6 +111,7 @@ def login():
                         "email": user.email,
                         "phone": user.phone,
                         "nickname": user.nickname,
+                        "user_tier": getattr(user, "user_tier", "free") or "free",
                     },
                 }
             ), 200

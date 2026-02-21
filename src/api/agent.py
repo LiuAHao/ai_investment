@@ -5,16 +5,54 @@
 Agent 工作流路由
 """
 
+import os
+import time
+import hashlib
+import threading
 from flask import Blueprint, request, jsonify
 from sqlalchemy.orm import Session
 import uuid
-import threading
 from models.database import AnalysisSession, AgentLog
 from models import get_db
 from api.agent_executor import AgentWorkflowExecutor
 from api.auth import get_current_user
+from concurrent.futures import ThreadPoolExecutor
 
 agent_bp = Blueprint("agent", __name__)
+
+# ── 线程池限制 ──
+MAX_WORKERS = int(os.getenv("AGENT_MAX_WORKERS", "10"))
+_agent_thread_pool = ThreadPoolExecutor(max_workers=MAX_WORKERS)
+
+# ── 重复任务检测 ──
+_recent_tasks: dict = {}
+_recent_tasks_lock = threading.Lock()
+_DEDUP_WINDOW = 30  # 30秒内相同请求视为重复
+
+# ── 输入限制 ──
+MAX_QUERY_LENGTH = 2000
+MAX_SYMBOL_LENGTH = 20
+
+
+def _is_duplicate_task(user_id: int, symbol: str, query: str) -> tuple:
+    """检测重复任务，防止用户快速连续提交"""
+    task_key = hashlib.md5(f"{user_id}:{symbol}:{query}".encode()).hexdigest()
+    now = time.time()
+    with _recent_tasks_lock:
+        # 清理过期记录
+        expired = [k for k, v in _recent_tasks.items() if now - v > _DEDUP_WINDOW]
+        for k in expired:
+            del _recent_tasks[k]
+        if task_key in _recent_tasks:
+            return True, int(_DEDUP_WINDOW - (now - _recent_tasks[task_key]))
+        _recent_tasks[task_key] = now
+        return False, 0
+
+
+def _count_active_tasks() -> int:
+    """统计当前正在处理的任务数"""
+    return len([e for e in AgentWorkflowExecutor._executors.values()
+                if e.status == "processing"])
 
 
 @agent_bp.route("/analyze", methods=["POST"])
@@ -25,12 +63,43 @@ def analyze():
         return jsonify({"error": "未授权"}), 401
 
     data = request.get_json()
-    symbol = data.get("symbol")
+    symbol = data.get("symbol", "").strip()
     news_limit = data.get("news_limit", 20)
     preferences = data.get("preferences")
+    user_query = data.get("query", "").strip() or f"分析股票 {symbol}"
 
     if not symbol:
         return jsonify({"error": "缺少股票代码"}), 400
+
+    # ── 输入校验 ──
+    if len(symbol) > MAX_SYMBOL_LENGTH:
+        return jsonify({"error": "股票代码过长"}), 400
+    if len(user_query) > MAX_QUERY_LENGTH:
+        return jsonify({"error": f"查询内容过长，最多{MAX_QUERY_LENGTH}字符"}), 400
+
+    # ── 配额检查 ──
+    from utils.quota_manager import quota_manager
+    user_tier = getattr(user, "user_tier", "free") or "free"
+    allowed, quota_info = quota_manager.check_and_consume(user.id, "analysis_per_day", user_tier=user_tier)
+    if not allowed:
+        return jsonify({
+            "error": "今日分析次数已用完",
+            "quota": quota_info,
+        }), 429
+
+    # ── 重复任务检测 ──
+    is_dup, retry_after = _is_duplicate_task(user.id, symbol, user_query)
+    if is_dup:
+        return jsonify({
+            "error": "相同的分析请求过于频繁，请稍后再试",
+            "retry_after": retry_after,
+        }), 429
+
+    # ── 系统容量检查 ──
+    if _count_active_tasks() >= MAX_WORKERS:
+        return jsonify({
+            "error": "系统繁忙，请稍后再试",
+        }), 503
 
     session_id = str(uuid.uuid4())
 
@@ -40,7 +109,7 @@ def analyze():
                 user_id=user.id,
                 session_id=session_id,
                 symbol=symbol,
-                query=f"分析股票 {symbol}",
+                query=user_query,
                 status="pending",
                 progress=0,
             )
@@ -49,11 +118,9 @@ def analyze():
 
             executor = AgentWorkflowExecutor.get_executor(session_id)
 
-            thread = threading.Thread(
-                target=executor.run_analysis, args=(symbol, news_limit, preferences)
+            _agent_thread_pool.submit(
+                executor.run_analysis, symbol, news_limit, preferences, user_query
             )
-            thread.daemon = True
-            thread.start()
 
             return jsonify(
                 {"message": "分析已启动", "session_id": session_id, "status": "processing"}
@@ -72,11 +139,39 @@ def query():
         return jsonify({"error": "未授权"}), 401
 
     data = request.get_json()
-    user_query = data.get("query")
+    user_query = data.get("query", "").strip()
     preferences = data.get("preferences")
 
     if not user_query:
         return jsonify({"error": "缺少查询内容"}), 400
+
+    # ── 输入校验 ──
+    if len(user_query) > MAX_QUERY_LENGTH:
+        return jsonify({"error": f"查询内容过长，最多{MAX_QUERY_LENGTH}字符"}), 400
+
+    # ── 配额检查 ──
+    from utils.quota_manager import quota_manager
+    user_tier = getattr(user, "user_tier", "free") or "free"
+    allowed, quota_info = quota_manager.check_and_consume(user.id, "analysis_per_day", user_tier=user_tier)
+    if not allowed:
+        return jsonify({
+            "error": "今日分析次数已用完",
+            "quota": quota_info,
+        }), 429
+
+    # ── 重复任务检测 ──
+    is_dup, retry_after = _is_duplicate_task(user.id, "", user_query)
+    if is_dup:
+        return jsonify({
+            "error": "相同的查询请求过于频繁，请稍后再试",
+            "retry_after": retry_after,
+        }), 429
+
+    # ── 系统容量检查 ──
+    if _count_active_tasks() >= MAX_WORKERS:
+        return jsonify({
+            "error": "系统繁忙，请稍后再试",
+        }), 503
 
     session_id = str(uuid.uuid4())
 
@@ -95,9 +190,9 @@ def query():
 
             executor = AgentWorkflowExecutor.get_executor(session_id)
 
-            thread = threading.Thread(target=executor.run_query, args=(user_query, preferences))
-            thread.daemon = True
-            thread.start()
+            _agent_thread_pool.submit(
+                executor.run_query, user_query, preferences
+            )
 
             return jsonify(
                 {"message": "查询已启动", "session_id": session_id, "status": "processing"}

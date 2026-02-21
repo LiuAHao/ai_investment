@@ -13,11 +13,13 @@ from models import get_db
 from api.auth import get_current_user
 from agent.decision_agent import DecisionAgent
 from agent.investment_expert_agent import InvestmentExpertAgent
+from utils.quota_manager import QuotaManager
 
 chat_bp = Blueprint("chat", __name__)
 
 decision_agent = DecisionAgent()
 expert_agent = InvestmentExpertAgent()
+quota_manager = QuotaManager()
 
 
 @chat_bp.route("/send", methods=["POST"])
@@ -182,6 +184,12 @@ def ask():
 
     if not content:
         return jsonify({"error": "消息内容不能为空"}), 400
+
+    # 配额检查
+    user_tier = getattr(user, "user_tier", "free") or "free"
+    allowed, msg = quota_manager.check_and_consume(user.id, "chat_per_day", user_tier)
+    if not allowed:
+        return jsonify({"error": msg}), 429
 
     with get_db() as db:
         try:

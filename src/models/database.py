@@ -32,6 +32,7 @@ class User(Base):
     phone = Column(String(30), nullable=True, index=True)
     password_hash = Column(String(255), nullable=False)
     nickname = Column(String(50), nullable=False)
+    user_tier = Column(String(20), nullable=False, default="free")  # free / pro / premium
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     is_active = Column(Boolean, default=True)

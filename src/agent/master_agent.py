@@ -152,9 +152,14 @@ class MasterAgent:
             "tasks": tasks,
         }
 
-    def execute_phase2(self, user_query: str, preferences: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def execute_phase2(self, user_query: str, preferences: Optional[Dict[str, Any]] = None, on_agent_complete: Optional[callable] = None) -> Dict[str, Any]:
         """
         执行 Phase 2 多 Agent 编排
+        
+        Args:
+            user_query: 用户查询
+            preferences: 用户偏好
+            on_agent_complete: Agent完成时的回调函数，参数为 (agent_name, agent_result)
         """
         mode = self.orchestrator_mode
         if mode in {"langchain", "auto"}:
@@ -197,86 +202,85 @@ class MasterAgent:
         news_payload: Dict[str, Any] = {}
         knowledge_payload: Dict[str, Any] = {}
 
+        # StockAgent 执行
         if symbol:
             t0 = time.time()
             try:
                 summary = self.stock_agent.analyze_daily_hist(symbol=symbol)
                 technical = self.stock_agent.analyze_technical_indicators(symbol=symbol)
                 data_payload = {"symbol": symbol, "summary": summary, "technical": technical}
-                agent_results.append(
-                    AgentResult(
-                        agent="StockAgent",
-                        status="completed",
-                        data=data_payload,
-                        latency_ms=int((time.time() - t0) * 1000),
-                    )
+                stock_result = AgentResult(
+                    agent="StockAgent",
+                    status="completed",
+                    data=data_payload,
+                    latency_ms=int((time.time() - t0) * 1000),
                 )
             except Exception as exc:
-                agent_results.append(
-                    AgentResult(
-                        agent="StockAgent",
-                        status="failed",
-                        data={},
-                        error=str(exc),
-                        latency_ms=int((time.time() - t0) * 1000),
-                    )
+                stock_result = AgentResult(
+                    agent="StockAgent",
+                    status="failed",
+                    data={},
+                    error=str(exc),
+                    latency_ms=int((time.time() - t0) * 1000),
                 )
         else:
-            agent_results.append(
-                AgentResult(
-                    agent="StockAgent",
-                    status="skipped",
-                    data={"reason": "未识别到股票代码"},
-                    error="未识别到股票代码",
-                    latency_ms=0,
-                )
+            stock_result = AgentResult(
+                agent="StockAgent",
+                status="skipped",
+                data={"reason": "未识别到股票代码"},
+                error="未识别到股票代码",
+                latency_ms=0,
             )
+        agent_results.append(stock_result)
+        if on_agent_complete:
+            on_agent_complete("StockAgent", stock_result.to_dict())
 
+        # NewsAgent 执行
         t1 = time.time()
         try:
             keywords = self._extract_keywords(user_query, symbol)
             news_payload = self.news_agent.get_relevant_titles(keywords=keywords, limit=5, web_limit=5)
-            agent_results.append(
-                AgentResult(
-                    agent="NewsAgent",
-                    status="completed",
-                    data=news_payload,
-                    latency_ms=int((time.time() - t1) * 1000),
-                )
+            news_result = AgentResult(
+                agent="NewsAgent",
+                status="completed",
+                data=news_payload,
+                latency_ms=int((time.time() - t1) * 1000),
             )
         except Exception as exc:
-            agent_results.append(
-                AgentResult(
-                    agent="NewsAgent",
-                    status="failed",
-                    data={},
-                    error=str(exc),
-                    latency_ms=int((time.time() - t1) * 1000),
-                )
+            news_result = AgentResult(
+                agent="NewsAgent",
+                status="failed",
+                data={},
+                error=str(exc),
+                latency_ms=int((time.time() - t1) * 1000),
             )
+        agent_results.append(news_result)
+        if on_agent_complete:
+            on_agent_complete("NewsAgent", news_result.to_dict())
 
+        # KnowledgeAgent 执行
         t2 = time.time()
         try:
             knowledge_payload = query_investment_knowledge(query=user_query, top_k=5)
-            agent_results.append(
-                AgentResult(
-                    agent="KnowledgeAgent",
-                    status="completed",
-                    data=knowledge_payload,
-                    latency_ms=int((time.time() - t2) * 1000),
-                )
+            knowledge_result = AgentResult(
+                agent="KnowledgeAgent",
+                status="completed",
+                data=knowledge_payload,
+                latency_ms=int((time.time() - t2) * 1000),
             )
         except Exception as exc:
-            agent_results.append(
-                AgentResult(
-                    agent="KnowledgeAgent",
-                    status="failed",
-                    data={},
-                    error=str(exc),
-                    latency_ms=int((time.time() - t2) * 1000),
-                )
+            knowledge_result = AgentResult(
+                agent="KnowledgeAgent",
+                status="failed",
+                data={},
+                error=str(exc),
+                latency_ms=int((time.time() - t2) * 1000),
             )
+        agent_results.append(knowledge_result)
+        if on_agent_complete:
+            on_agent_complete("KnowledgeAgent", knowledge_result.to_dict())
 
+        # AnalysisAgent 执行
         t3 = time.time()
         try:
             recommendation = self.analysis_agent.analyze(
@@ -286,25 +290,24 @@ class MasterAgent:
                 knowledge_payload=knowledge_payload,
                 preferences=preferences,
             )
-            agent_results.append(
-                AgentResult(
-                    agent="AnalysisAgent",
-                    status="completed",
-                    data={"recommendation": recommendation},
-                    latency_ms=int((time.time() - t3) * 1000),
-                )
+            analysis_result = AgentResult(
+                agent="AnalysisAgent",
+                status="completed",
+                data={"recommendation": recommendation},
+                latency_ms=int((time.time() - t3) * 1000),
             )
         except Exception as exc:
             recommendation = "分析阶段失败：系统未能完成综合推理，请稍后重试。"
-            agent_results.append(
-                AgentResult(
-                    agent="AnalysisAgent",
-                    status="failed",
-                    data={},
-                    error=str(exc),
-                    latency_ms=int((time.time() - t3) * 1000),
-                )
+            analysis_result = AgentResult(
+                agent="AnalysisAgent",
+                status="failed",
+                data={},
+                error=str(exc),
+                latency_ms=int((time.time() - t3) * 1000),
             )
+        agent_results.append(analysis_result)
+        if on_agent_complete:
+            on_agent_complete("AnalysisAgent", analysis_result.to_dict())
 
         degraded = any(item.status == "failed" for item in agent_results)
         workflow = WorkflowResult(

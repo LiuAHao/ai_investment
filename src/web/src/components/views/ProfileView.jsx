@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowRight, Mail, Phone, Lock, User } from 'lucide-react';
-import { updatePassword, updatePhone, updateProfile } from '../../services/apiClient';
+import { ArrowRight, Mail, Phone, Lock, User, Crown, Zap, Shield, Star } from 'lucide-react';
+import { updatePassword, updatePhone, updateProfile, fetchQuota, fetchTiers, upgradeTier } from '../../services/apiClient';
 
 const ProfileView = ({ setViewState, user, onProfileUpdated }) => {
   const [isEditing, setIsEditing] = useState(false);
@@ -13,6 +13,10 @@ const ProfileView = ({ setViewState, user, onProfileUpdated }) => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [quotaData, setQuotaData] = useState(null);
+  const [tiersData, setTiersData] = useState([]);
+  const [isUpgrading, setIsUpgrading] = useState(false);
+  const [upgradeMsg, setUpgradeMsg] = useState('');
   const nicknameRef = useRef(null);
   const emailRef = useRef(null);
   const phoneRef = useRef(null);
@@ -27,6 +31,20 @@ const ProfileView = ({ setViewState, user, onProfileUpdated }) => {
     setEmail(user?.email || '');
     setPhone(user?.phone || '');
   }, [user]);
+
+  // 加载配额和等级信息
+  useEffect(() => {
+    const loadTierData = async () => {
+      try {
+        const [q, t] = await Promise.all([fetchQuota(), fetchTiers()]);
+        setQuotaData(q);
+        setTiersData(t?.tiers || []);
+      } catch (err) {
+        // 静默失败，不影响主要功能
+      }
+    };
+    loadTierData();
+  }, [user?.user_tier]);
 
   useEffect(() => {
     if (!isEditing) return;
@@ -56,6 +74,57 @@ const ProfileView = ({ setViewState, user, onProfileUpdated }) => {
   const closeEditor = () => {
     setIsEditing(false);
     setError('');
+  };
+
+  // 等级相关配置
+  const tierConfig = {
+    free: { label: '免费版', color: 'from-slate-500 to-slate-600', textColor: 'text-slate-300', icon: User, borderColor: 'border-slate-500/30' },
+    pro: { label: '专业版', color: 'from-blue-500 to-cyan-500', textColor: 'text-blue-300', icon: Zap, borderColor: 'border-blue-500/30' },
+    premium: { label: '旗舰版', color: 'from-amber-500 to-yellow-500', textColor: 'text-amber-300', icon: Crown, borderColor: 'border-amber-500/30' },
+  };
+  const currentTier = user?.user_tier || 'free';
+  const currentTierConfig = tierConfig[currentTier] || tierConfig.free;
+  const TierIcon = currentTierConfig.icon;
+
+  const handleUpgrade = async (tier) => {
+    if (tier === currentTier) return;
+    setIsUpgrading(true);
+    setUpgradeMsg('');
+    try {
+      const result = await upgradeTier(tier);
+      setUpgradeMsg(result?.message || '升级成功');
+      // 刷新用户信息
+      if (onProfileUpdated) {
+        onProfileUpdated({ ...user, user_tier: tier });
+      }
+      // 刷新配额
+      const q = await fetchQuota();
+      setQuotaData(q);
+    } catch (err) {
+      setUpgradeMsg(err?.message || '升级失败');
+    } finally {
+      setIsUpgrading(false);
+    }
+  };
+
+  // 配额使用率渲染
+  const renderQuotaBar = (label, used, limit) => {
+    const pct = limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
+    const isHigh = pct >= 80;
+    return (
+      <div className="space-y-1.5">
+        <div className="flex justify-between text-xs">
+          <span className="text-slate-400">{label}</span>
+          <span className={isHigh ? 'text-red-400 font-medium' : 'text-slate-400'}>{used} / {limit}</span>
+        </div>
+        <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-500 ${isHigh ? 'bg-gradient-to-r from-red-500 to-orange-500' : 'bg-gradient-to-r from-blue-500 to-cyan-400'}`}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      </div>
+    );
   };
 
   const handleSave = async () => {
@@ -137,7 +206,13 @@ const ProfileView = ({ setViewState, user, onProfileUpdated }) => {
               {user?.nickname || user?.username || 'AI'}
             </div>
             <div className="flex-1">
-              <h2 className="text-2xl font-bold text-white mb-2">{user?.nickname || user?.username || '用户'}</h2>
+              <div className="flex items-center gap-3 mb-2">
+                <h2 className="text-2xl font-bold text-white">{user?.nickname || user?.username || '用户'}</h2>
+                <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gradient-to-r ${currentTierConfig.color} text-white shadow-lg`}>
+                  <TierIcon className="w-3 h-3" />
+                  {currentTierConfig.label}
+                </span>
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-2 gap-x-6 text-xs text-slate-400">
                 <div className="flex items-center gap-2">
                   <span className="text-slate-500">用户名</span>
@@ -223,6 +298,100 @@ const ProfileView = ({ setViewState, user, onProfileUpdated }) => {
                 修改
               </button>
             </div>
+          </div>
+        </div>
+
+        {/* 今日使用配额 */}
+        {quotaData && (
+          <div className="bg-slate-900/60 backdrop-blur-md rounded-2xl border border-white/10 p-6 shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-white">今日使用额度</h3>
+              <span className={`text-xs px-2 py-0.5 rounded-full bg-gradient-to-r ${currentTierConfig.color} text-white`}>
+                {currentTierConfig.label}
+              </span>
+            </div>
+            <div className="grid gap-4">
+              {quotaData.quota?.analysis_per_day !== undefined && renderQuotaBar(
+                '深度分析',
+                quotaData.quota.analysis_per_day.used,
+                quotaData.quota.analysis_per_day.limit
+              )}
+              {quotaData.quota?.chat_per_day !== undefined && renderQuotaBar(
+                '智能问答',
+                quotaData.quota.chat_per_day.used,
+                quotaData.quota.chat_per_day.limit
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* 会员升级 */}
+        <div className="bg-slate-900/60 backdrop-blur-md rounded-2xl border border-white/10 p-6 shadow-xl">
+          <div className="flex items-center gap-2 mb-5">
+            <Star className="w-5 h-5 text-amber-400" />
+            <h3 className="text-lg font-bold text-white">会员计划</h3>
+          </div>
+          {upgradeMsg && (
+            <div className={`mb-4 text-sm px-3 py-2 rounded-lg ${upgradeMsg.includes('失败') ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-green-500/10 text-green-400 border border-green-500/20'}`}>
+              {upgradeMsg}
+            </div>
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {[
+              { key: 'free', label: '免费版', price: '¥0', desc: '基础投资分析功能', features: ['每日5次深度分析', '每日20次智能问答', '基础行情数据'] },
+              { key: 'pro', label: '专业版', price: '¥29/月', desc: '适合活跃投资者', features: ['每日30次深度分析', '每日100次智能问答', '实时行情 + 新闻聚合'], popular: true },
+              { key: 'premium', label: '旗舰版', price: '¥99/月', desc: '面向专业投研用户', features: ['每日100次深度分析', '每日500次智能问答', '全部功能无限制'] },
+            ].map((plan) => {
+              const isActive = currentTier === plan.key;
+              const cfg = tierConfig[plan.key];
+              const PlanIcon = cfg.icon;
+              return (
+                <div
+                  key={plan.key}
+                  className={`relative rounded-xl border p-5 transition-all duration-300 ${
+                    isActive
+                      ? `${cfg.borderColor} bg-gradient-to-b from-slate-800/80 to-slate-900/80 shadow-lg`
+                      : 'border-white/5 bg-slate-800/30 hover:border-white/15 hover:bg-slate-800/50'
+                  }`}
+                >
+                  {plan.popular && !isActive && (
+                    <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-3 py-0.5 bg-gradient-to-r from-blue-500 to-cyan-500 text-white text-[10px] font-bold rounded-full uppercase tracking-wider">
+                      推荐
+                    </div>
+                  )}
+                  {isActive && (
+                    <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-3 py-0.5 bg-gradient-to-r from-green-500 to-emerald-500 text-white text-[10px] font-bold rounded-full">
+                      当前方案
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2 mb-3 mt-1">
+                    <PlanIcon className={`w-4 h-4 ${cfg.textColor}`} />
+                    <span className={`text-sm font-bold ${cfg.textColor}`}>{plan.label}</span>
+                  </div>
+                  <div className="text-2xl font-bold text-white mb-1">{plan.price}</div>
+                  <p className="text-xs text-slate-500 mb-4">{plan.desc}</p>
+                  <ul className="space-y-2 mb-5">
+                    {plan.features.map((f, i) => (
+                      <li key={i} className="flex items-start gap-2 text-xs text-slate-300">
+                        <Shield className="w-3.5 h-3.5 mt-0.5 text-slate-500 shrink-0" />
+                        {f}
+                      </li>
+                    ))}
+                  </ul>
+                  <button
+                    onClick={() => handleUpgrade(plan.key)}
+                    disabled={isActive || isUpgrading}
+                    className={`w-full py-2 rounded-lg text-sm font-medium transition-all ${
+                      isActive
+                        ? 'bg-slate-700/50 text-slate-500 cursor-default'
+                        : `bg-gradient-to-r ${cfg.color} text-white hover:opacity-90 shadow-md`
+                    }`}
+                  >
+                    {isActive ? '当前方案' : isUpgrading ? '处理中...' : '升级'}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>

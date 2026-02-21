@@ -82,11 +82,11 @@ export const updatePassword = async (currentPassword, newPassword) => {
   });
 };
 
-export const startAnalyzeWorkflow = async (symbol, newsLimit = 20, preferences = null) => {
+export const startAnalyzeWorkflow = async (symbol, newsLimit = 20, preferences = null, query = '') => {
   return apiRequest('/api/agent/analyze', {
     method: 'POST',
     auth: true,
-    body: { symbol, news_limit: newsLimit, preferences },
+    body: { symbol, news_limit: newsLimit, preferences, query },
   });
 };
 
@@ -125,5 +125,23 @@ export const askChat = async (content, sessionId, preferences = null) => {
 export const fetchChatHistory = async (sessionId, limit = 50, offset = 0) => {
   return apiRequest(`/api/chat/history?session_id=${sessionId}&limit=${limit}&offset=${offset}`, {
     auth: true,
+  });
+};
+
+// ========== 配额 & 会员等级 ==========
+
+export const fetchQuota = async () => {
+  return apiRequest('/api/user/quota', { auth: true });
+};
+
+export const fetchTiers = async () => {
+  return apiRequest('/api/user/tiers', { auth: true });
+};
+
+export const upgradeTier = async (tier) => {
+  return apiRequest('/api/user/upgrade', {
+    method: 'POST',
+    auth: true,
+    body: { tier },
   });
 };

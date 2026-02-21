@@ -7,6 +7,7 @@ import {
 import AgentStatusNode from './components/ui/AgentStatusNode';
 import ProgressBar from './components/ui/ProgressBar';
 import QuickStarter from './components/ui/QuickStarter';
+import TypewriterText from './components/ui/TypewriterText';
 import ProfileView from './components/views/ProfileView';
 import SettingsView from './components/views/SettingsView';
 import LandingView from './components/views/LandingView';
@@ -37,6 +38,8 @@ export default function InvestmentAgentApp() {
     const [analysisResult, setAnalysisResult] = useState(null);
     const [riskPreference, setRiskPreference] = useState('稳健型 (蓝筹/红利)');
     const [appMode, setAppMode] = useState('使用模式');
+    const [agentOutputs, setAgentOutputs] = useState([]); // 存储各Agent的输出
+    const [prevAgentCount, setPrevAgentCount] = useState(0); // 跟踪上一次Agent数量，用于打字机效果
     const workflowTimerRef = useRef(null);
     const chatTimerRef = useRef(null);
   
@@ -156,6 +159,17 @@ export default function InvestmentAgentApp() {
       return stage;
     };
 
+    // 追踪agentOutputs变化，延迟更新prevAgentCount以触发打字机效果
+    useEffect(() => {
+      if (agentOutputs.length > prevAgentCount) {
+        // 新Agent完成后，延迟2秒更新计数（给打字机动画留时间）
+        const timer = setTimeout(() => {
+          setPrevAgentCount(agentOutputs.length);
+        }, 2000);
+        return () => clearTimeout(timer);
+      }
+    }, [agentOutputs.length, prevAgentCount]);
+
     // Close user menu when clicking outside
     useEffect(() => {
       const handleClickOutside = (event) => {
@@ -192,6 +206,8 @@ export default function InvestmentAgentApp() {
       setActiveLogs([]);
       setAiSummary('');
       setIsAiGenerating(true);
+      setAgentOutputs([]); // 清空之前的Agent输出
+      setPrevAgentCount(0); // 重置Agent计数
 
       if (workflowTimerRef.current) {
         clearInterval(workflowTimerRef.current);
@@ -207,7 +223,7 @@ export default function InvestmentAgentApp() {
             app_mode: appMode,
           };
           const response = isSymbol
-            ? await startAnalyzeWorkflow(trimmedQuery, 20, preferences)
+            ? await startAnalyzeWorkflow(trimmedQuery, 20, preferences, query.trim())
             : await startQueryWorkflow(trimmedQuery, preferences);
 
         setChatSessionId(response.session_id); // This line is retained as it is relevant to the current context.
@@ -227,15 +243,29 @@ export default function InvestmentAgentApp() {
               }))
             );
 
+            // 实时提取中间Agent结果（在processing状态下也显示已完成的Agent）
+            const parsedResult = parseResult(status.result);
+            if (parsedResult?.agent_results && parsedResult.agent_results.length > 0) {
+              setPrevAgentCount(prev => {
+                // 只有新增的agent才触发打字机效果
+                const newCount = parsedResult.agent_results.length;
+                return prev < newCount ? prev : prev;
+              });
+              setAgentOutputs(parsedResult.agent_results);
+            }
+
             if (status.status === 'completed') {
               clearInterval(workflowTimerRef.current);
               workflowTimerRef.current = null;
               setAppState('completed');
               setIsAiGenerating(false);
-              const parsedResult = parseResult(status.result);
               setAnalysisResult(parsedResult);
               setAiSummary(buildSummary(parsedResult));
               loadCitations(parsedResult);
+              // 最终结果中的agent_results
+              if (parsedResult?.agent_results) {
+                setAgentOutputs(parsedResult.agent_results);
+              }
             }
 
             if (status.status === 'failed') {
@@ -351,6 +381,8 @@ export default function InvestmentAgentApp() {
     const buildSummary = (result) => {
       if (!result) return '';
       if (typeof result === 'string') return result;
+      // 通用查询的 response 字段
+      if (result.response) return result.response;
       if (result.recommendation) return result.recommendation;
       const stock = result.stock_summary || {};
       const tech = result.tech_indicators || {};
@@ -405,6 +437,413 @@ export default function InvestmentAgentApp() {
       } catch (error) {
         return String(parsed);
       }
+    };
+
+    // 渲染单个Agent的输出卡片
+    const renderAgentOutputCard = (agentResult, index, isNewAgent = false) => {
+      const { agent, status, data, error, latency_ms } = agentResult;
+      
+      const agentConfig = {
+        StockAgent: { 
+          label: '数据Agent', 
+          icon: Database, 
+          color: 'blue',
+          desc: '股票数据获取与技术分析'
+        },
+        NewsAgent: { 
+          label: '新闻Agent', 
+          icon: Globe, 
+          color: 'green',
+          desc: '新闻检索与情绪分析'
+        },
+        KnowledgeAgent: { 
+          label: '知识Agent', 
+          icon: Cpu, 
+          color: 'purple',
+          desc: '投资知识库检索'
+        },
+        AnalysisAgent: { 
+          label: '分析Agent', 
+          icon: Sparkles, 
+          color: 'orange',
+          desc: '综合分析与投资建议生成'
+        },
+      };
+      
+      const config = agentConfig[agent] || { label: agent, icon: Cpu, color: 'gray', desc: '' };
+      const Icon = config.icon;
+      
+      const statusConfig = {
+        completed: { bg: 'bg-green-500/10', border: 'border-green-500/30', text: 'text-green-400', label: '已完成' },
+        failed: { bg: 'bg-red-500/10', border: 'border-red-500/30', text: 'text-red-400', label: '失败' },
+        skipped: { bg: 'bg-yellow-500/10', border: 'border-yellow-500/30', text: 'text-yellow-400', label: '已跳过' },
+        pending: { bg: 'bg-slate-500/10', border: 'border-slate-500/30', text: 'text-slate-400', label: '等待中' },
+      };
+      const statusStyle = statusConfig[status] || statusConfig.completed;
+
+      // 渲染StockAgent详细内容
+      const renderStockDetail = (data) => {
+        const summary = data?.summary || {};
+        const technical = data?.technical || {};
+        if (!summary.symbol && !summary.latest_close && !technical.trend) {
+          return <p className="text-sm text-slate-400">当前查询不涉及具体股票分析，数据Agent未获取行情数据。</p>;
+        }
+        const changePct = summary.latest_change_pct;
+        const changeColor = changePct >= 0 ? 'text-red-400' : 'text-green-400';
+        const changeSign = changePct >= 0 ? '+' : '';
+        const returnPct = summary.total_return_pct;
+        const returnColor = returnPct >= 0 ? 'text-red-400' : 'text-green-400';
+        const returnSign = returnPct >= 0 ? '+' : '';
+        return (
+          <div className="space-y-2.5">
+            {/* 股票标题与区间 */}
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-blue-300">
+                {summary.symbol || '未知'}
+              </span>
+              {summary.start_date && summary.end_date && (
+                <span className="text-xs text-slate-500">
+                  {summary.start_date} ~ {summary.end_date}
+                </span>
+              )}
+            </div>
+            {/* 价格核心指标 */}
+            <div className="grid grid-cols-2 gap-2">
+              {summary.latest_close !== undefined && (
+                <div className="bg-slate-800/50 rounded-lg px-2.5 py-1.5">
+                  <p className="text-xs text-slate-500">最新收盘</p>
+                  <p className="text-sm font-medium text-white">
+                    ¥{Number(summary.latest_close).toFixed(2)}
+                    {changePct !== undefined && (
+                      <span className={`ml-1 text-xs ${changeColor}`}>
+                        {changeSign}{Number(changePct).toFixed(2)}%
+                      </span>
+                    )}
+                  </p>
+                </div>
+              )}
+              {returnPct !== undefined && (
+                <div className="bg-slate-800/50 rounded-lg px-2.5 py-1.5">
+                  <p className="text-xs text-slate-500">区间涨跌</p>
+                  <p className={`text-sm font-medium ${returnColor}`}>
+                    {returnSign}{Number(returnPct).toFixed(2)}%
+                  </p>
+                </div>
+              )}
+              {summary.high_max !== undefined && summary.low_min !== undefined && (
+                <div className="bg-slate-800/50 rounded-lg px-2.5 py-1.5">
+                  <p className="text-xs text-slate-500">价格区间</p>
+                  <p className="text-sm text-slate-300">
+                    ¥{Number(summary.low_min).toFixed(2)} ~ ¥{Number(summary.high_max).toFixed(2)}
+                  </p>
+                </div>
+              )}
+              {summary.volatility_pct !== undefined && (
+                <div className="bg-slate-800/50 rounded-lg px-2.5 py-1.5">
+                  <p className="text-xs text-slate-500">波动率</p>
+                  <p className="text-sm text-slate-300">{Number(summary.volatility_pct).toFixed(2)}%</p>
+                </div>
+              )}
+            </div>
+            {/* 技术分析 */}
+            {(technical.trend || technical.ma) && (
+              <div className="bg-slate-800/40 rounded-lg px-2.5 py-2">
+                <p className="text-xs text-slate-500 mb-1">技术分析</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {technical.trend && (
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${
+                      technical.trend === '上行' ? 'bg-red-500/15 text-red-400' : 
+                      technical.trend === '下行' ? 'bg-green-500/15 text-green-400' : 
+                      'bg-yellow-500/15 text-yellow-400'
+                    }`}>
+                      趋势: {technical.trend}
+                    </span>
+                  )}
+                  {technical.momentum_pct !== undefined && (
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${
+                      technical.momentum_pct >= 0 ? 'bg-red-500/15 text-red-400' : 'bg-green-500/15 text-green-400'
+                    }`}>
+                      动量: {technical.momentum_pct >= 0 ? '+' : ''}{Number(technical.momentum_pct).toFixed(2)}%
+                    </span>
+                  )}
+                </div>
+                {technical.ma && Object.keys(technical.ma).length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-400">
+                    {Object.entries(technical.ma).map(([key, val]) => (
+                      <span key={key}>{key.toUpperCase()}: ¥{Number(val).toFixed(2)}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {/* 成交量信息 */}
+            {(summary.avg_volume || summary.avg_amount) && (
+              <div className="flex gap-3 text-xs text-slate-500">
+                {summary.avg_volume && (
+                  <span>日均成交量: {Number(summary.avg_volume) >= 10000 ? 
+                    (Number(summary.avg_volume) / 10000).toFixed(1) + '万' : 
+                    Number(summary.avg_volume).toFixed(0)}手</span>
+                )}
+                {summary.avg_amount && (
+                  <span>日均成交额: {Number(summary.avg_amount) >= 100000000 ? 
+                    (Number(summary.avg_amount) / 100000000).toFixed(2) + '亿' : 
+                    (Number(summary.avg_amount) / 10000).toFixed(0) + '万'}</span>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      // 渲染NewsAgent详细内容
+      const renderNewsDetail = (data) => {
+        const webResults = data?.web_results || [];
+        const relevantTitles = data?.relevant_titles || [];
+        const totalCount = data?.total_titles || relevantTitles.length;
+        
+        return (
+          <div className="space-y-2.5">
+            {/* 概要统计 */}
+            <div className="flex items-center gap-3 text-xs">
+              {totalCount > 0 && (
+                <span className="text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full">
+                  {totalCount} 条新闻
+                </span>
+              )}
+              {webResults.length > 0 && (
+                <span className="text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full">
+                  {webResults.length} 条网络搜索
+                </span>
+              )}
+              {totalCount === 0 && webResults.length === 0 && (
+                <span className="text-yellow-400 bg-yellow-500/10 px-2 py-0.5 rounded-full">
+                  未检索到相关新闻
+                </span>
+              )}
+            </div>
+            {/* 新闻列表 */}
+            {webResults.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs text-slate-500">市场资讯：</p>
+                {webResults.slice(0, 4).map((item, i) => (
+                  <div key={i} className="bg-slate-800/40 rounded-lg px-2.5 py-1.5">
+                    <p className="text-xs text-slate-200 font-medium leading-snug">
+                      {item.title || '无标题'}
+                    </p>
+                    {item.snippet && (
+                      <p className="text-xs text-slate-500 mt-0.5 line-clamp-2 leading-relaxed">
+                        {item.snippet.length > 80 ? item.snippet.slice(0, 80) + '…' : item.snippet}
+                      </p>
+                    )}
+                  </div>
+                ))}
+                {webResults.length > 4 && (
+                  <p className="text-xs text-slate-500 text-center">
+                    还有 {webResults.length - 4} 条更多资讯…
+                  </p>
+                )}
+              </div>
+            )}
+            {/* 相关标题 */}
+            {relevantTitles.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs text-slate-500">相关标题：</p>
+                {relevantTitles.slice(0, 3).map((title, i) => (
+                  <p key={i} className="text-xs text-slate-300 pl-2 border-l border-green-500/30">
+                    {title}
+                  </p>
+                ))}
+              </div>
+            )}
+            {totalCount === 0 && webResults.length === 0 && (
+              <p className="text-xs text-slate-500">建议关注后续市场动态以获取更多信息。</p>
+            )}
+          </div>
+        );
+      };
+
+      // 渲染KnowledgeAgent详细内容
+      const renderKnowledgeDetail = (data) => {
+        const results = data?.results || [];
+        const citations = data?.citations || [];
+        const fallback = data?.fallback;
+        const message = data?.message;
+        
+        if (results.length === 0) {
+          return (
+            <div className="space-y-2">
+              <p className="text-sm text-slate-400">
+                未找到直接匹配的知识片段。系统将基于通用分析框架继续评估。
+              </p>
+              {message && (
+                <p className="text-xs text-yellow-400/70">提示: {message}</p>
+              )}
+            </div>
+          );
+        }
+        
+        // 提取涉及的主题领域
+        const topics = [];
+        results.slice(0, 5).forEach(item => {
+          const content = item.text || item.content || '';
+          if (content.includes('估值')) topics.push('估值方法');
+          if (content.includes('技术')) topics.push('技术分析');
+          if (content.includes('财务')) topics.push('财务指标');
+          if (content.includes('风险')) topics.push('风险控制');
+          if (content.includes('行业')) topics.push('行业研究');
+          if (content.includes('宏观')) topics.push('宏观分析');
+          if (content.includes('策略')) topics.push('投资策略');
+          if (content.includes('交易')) topics.push('交易规则');
+        });
+        const uniqueTopics = [...new Set(topics)];
+        
+        return (
+          <div className="space-y-2.5">
+            {/* 概要 */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-full">
+                {results.length} 条知识匹配
+              </span>
+              {fallback && (
+                <span className="text-xs text-yellow-400 bg-yellow-500/10 px-2 py-0.5 rounded-full">
+                  覆盖不足
+                </span>
+              )}
+            </div>
+            {/* 涉及领域标签 */}
+            {uniqueTopics.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {uniqueTopics.map((topic, i) => (
+                  <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-300">
+                    {topic}
+                  </span>
+                ))}
+              </div>
+            )}
+            {/* 知识片段摘要 */}
+            <div className="space-y-1.5">
+              {results.slice(0, 3).map((item, i) => {
+                const text = item.text || item.content || '';
+                const excerpt = text.length > 100 ? text.slice(0, 100) + '…' : text;
+                const meta = item.metadata || {};
+                const title = meta.title || citations[i]?.title || '';
+                return (
+                  <div key={i} className="bg-slate-800/40 rounded-lg px-2.5 py-1.5">
+                    {title && (
+                      <p className="text-xs text-purple-300 font-medium">{title}</p>
+                    )}
+                    <p className="text-xs text-slate-400 leading-relaxed mt-0.5">{excerpt}</p>
+                  </div>
+                );
+              })}
+              {results.length > 3 && (
+                <p className="text-xs text-slate-500 text-center">
+                  还有 {results.length - 3} 条相关知识…
+                </p>
+              )}
+            </div>
+          </div>
+        );
+      };
+
+      // 渲染AnalysisAgent详细内容
+      const renderAnalysisDetail = (data) => {
+        const recommendation = data?.recommendation;
+        if (!recommendation) {
+          return <p className="text-sm text-slate-400">正在生成分析结论…</p>;
+        }
+        const recText = typeof recommendation === 'string' ? recommendation : JSON.stringify(recommendation);
+        
+        // 提取关键信号
+        const signals = [];
+        if (recText.includes('观望') || recText.includes('谨慎')) signals.push({ label: '观望', color: 'yellow' });
+        if (recText.includes('买入') || recText.includes('增持')) signals.push({ label: '偏多', color: 'red' });
+        if (recText.includes('卖出') || recText.includes('减持')) signals.push({ label: '偏空', color: 'green' });
+        if (recText.includes('风险')) signals.push({ label: '关注风险', color: 'orange' });
+        if (recText.includes('机会') || recText.includes('利好')) signals.push({ label: '存在机会', color: 'blue' });
+        
+        // 截取前200字作为摘要
+        const excerpt = recText.length > 200 ? recText.slice(0, 200) + '…' : recText;
+        
+        return (
+          <div className="space-y-2.5">
+            {/* 信号标签 */}
+            {signals.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {signals.map((s, i) => (
+                  <span key={i} className={`text-xs px-2 py-0.5 rounded-full bg-${s.color}-500/15 text-${s.color}-400`}>
+                    {s.label}
+                  </span>
+                ))}
+              </div>
+            )}
+            {/* 分析摘要 */}
+            <div className="bg-slate-800/40 rounded-lg px-2.5 py-2">
+              <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-line">
+                {excerpt}
+              </p>
+            </div>
+            {recText.length > 200 && (
+              <p className="text-xs text-slate-500">完整分析请查看下方投资建议报告。</p>
+            )}
+          </div>
+        );
+      };
+
+      // 根据Agent类型选择渲染函数
+      const renderAgentDetail = () => {
+        if (!data || Object.keys(data).length === 0) {
+          return <p className="text-sm text-slate-400">该Agent未返回有效数据。</p>;
+        }
+        if (data.reason) {
+          return <p className="text-sm text-yellow-400">{data.reason}</p>;
+        }
+        switch (agent) {
+          case 'StockAgent': return renderStockDetail(data);
+          case 'NewsAgent': return renderNewsDetail(data);
+          case 'KnowledgeAgent': return renderKnowledgeDetail(data);
+          case 'AnalysisAgent': return renderAnalysisDetail(data);
+          default: return <p className="text-sm text-slate-300">该Agent已完成任务。</p>;
+        }
+      };
+      
+      return (
+        <div key={index} className={`rounded-xl border ${statusStyle.border} ${statusStyle.bg} p-4 transition-all hover:scale-[1.02]`}>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <div className={`w-8 h-8 rounded-lg bg-${config.color}-500/20 flex items-center justify-center`}>
+                <Icon className={`w-4 h-4 text-${config.color}-400`} />
+              </div>
+              <div>
+                <h4 className="text-sm font-medium text-slate-200">{config.label}</h4>
+                <p className="text-xs text-slate-500">{config.desc}</p>
+              </div>
+            </div>
+            <div className="text-right">
+              <span className={`text-xs px-2 py-1 rounded-full ${statusStyle.bg} ${statusStyle.text}`}>
+                {statusStyle.label}
+              </span>
+              {latency_ms > 0 && (
+                <p className="text-xs text-slate-500 mt-1">{latency_ms}ms</p>
+              )}
+            </div>
+          </div>
+          
+          <div className="mt-3">
+            {status === 'failed' && error ? (
+              <div className="text-xs text-red-400 bg-red-500/10 rounded px-2 py-1.5">
+                <TypewriterText text={`错误: ${error}`} speed={15} className="text-red-400" />
+              </div>
+            ) : status === 'skipped' ? (
+              <div className="text-xs text-yellow-400 bg-yellow-500/10 rounded px-2 py-1.5">
+                <TypewriterText text={data?.reason || '该阶段已跳过'} speed={15} className="text-yellow-400" />
+              </div>
+            ) : (
+              renderAgentDetail()
+            )}
+          </div>
+        </div>
+      );
     };
 
     const handleQuickStart = (text) => {
@@ -495,7 +934,16 @@ export default function InvestmentAgentApp() {
                        <div className="absolute right-0 top-full mt-2 w-56 bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 z-50">
                          {/* User Info */}
                          <div className="px-4 py-3 border-b border-white/10">
-                           <p className="font-medium text-white">{currentUser?.nickname || currentUser?.username || '用户'}</p>
+                           <div className="flex items-center gap-2">
+                             <p className="font-medium text-white">{currentUser?.nickname || currentUser?.username || '用户'}</p>
+                             <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
+                               currentUser?.user_tier === 'premium' ? 'bg-amber-500/20 text-amber-300' :
+                               currentUser?.user_tier === 'pro' ? 'bg-blue-500/20 text-blue-300' :
+                               'bg-slate-500/20 text-slate-400'
+                             }`}>
+                               {currentUser?.user_tier === 'premium' ? '旗舰版' : currentUser?.user_tier === 'pro' ? '专业版' : '免费版'}
+                             </span>
+                           </div>
                            <p className="text-xs text-slate-400">{currentUser?.email || '未设置邮箱'}</p>
                          </div>
                        
@@ -515,6 +963,15 @@ export default function InvestmentAgentApp() {
                              <Settings className="w-4 h-4 text-slate-400" />
                              <span className="text-sm text-slate-300">设置</span>
                            </button>
+                           {currentUser?.user_tier !== 'premium' && (
+                             <button
+                               onClick={() => handleViewChange('profile')}
+                               className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-amber-500/10 transition-colors text-left"
+                             >
+                               <Sparkles className="w-4 h-4 text-amber-400" />
+                               <span className="text-sm text-amber-300">升级会员</span>
+                             </button>
+                           )}
                          </div>
                        
                          {/* Logout */}
@@ -636,7 +1093,7 @@ export default function InvestmentAgentApp() {
 
               {/* --- Process Visualization (The "Wait" State) --- */}
               {appState === 'processing' && (
-                <div className="max-w-4xl mx-auto mt-12 animate-in fade-in duration-500">
+                <div className="max-w-5xl mx-auto mt-12 animate-in fade-in duration-500">
                   {(() => {
                     const stage = deriveStageProgress();
 
@@ -664,6 +1121,94 @@ export default function InvestmentAgentApp() {
                   </div>
 
                   <ProgressBar progress={progress} />
+                  
+                  {/* 渐进式实时显示已完成的Agent输出卡片 */}
+                  <div className="mt-8">
+                    <h3 className="text-sm font-medium text-slate-400 mb-4 flex items-center gap-2">
+                      <Cpu className="w-4 h-4 text-blue-400" />
+                      Agent 执行进度
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* 已完成的Agent - 显示所有结果（不过滤） */}
+                      {agentOutputs.map((agentResult, index) => (
+                        <div 
+                          key={`agent-${agentResult.agent}`} 
+                          className="animate-in fade-in slide-in-from-left-4 duration-500"
+                          style={{ animationDelay: `${index * 150}ms` }}
+                        >
+                          {renderAgentOutputCard(agentResult, index, index >= prevAgentCount)}
+                        </div>
+                      ))}
+                      {/* 未完成的Agent - 显示 pending 占位卡片 */}
+                      {(() => {
+                        const expectedAgents = ['StockAgent', 'NewsAgent', 'KnowledgeAgent', 'AnalysisAgent'];
+                        const completedAgentNames = agentOutputs.map(a => a.agent);
+                        const pendingAgents = expectedAgents.filter(a => !completedAgentNames.includes(a));
+                        return pendingAgents.map((agentName, idx) => (
+                          <div 
+                            key={`pending-${agentName}`}
+                            className="rounded-xl border border-slate-500/20 bg-slate-500/5 p-4 transition-all"
+                          >
+                            <div className="flex items-center justify-between mb-3">
+                              <div className="flex items-center gap-2">
+                                <div className="w-8 h-8 rounded-lg bg-slate-500/20 flex items-center justify-center">
+                                  <Loader2 className="w-4 h-4 text-slate-500 animate-spin" />
+                                </div>
+                                <div>
+                                  <h4 className="text-sm font-medium text-slate-400">
+                                    {({StockAgent: '数据Agent', NewsAgent: '新闻Agent', KnowledgeAgent: '知识Agent', AnalysisAgent: '分析Agent'})[agentName]}
+                                  </h4>
+                                  <p className="text-xs text-slate-600">等待执行</p>
+                                </div>
+                              </div>
+                              <span className="text-xs px-2 py-1 rounded-full bg-slate-500/10 text-slate-500">
+                                等待中
+                              </span>
+                            </div>
+                            <div className="mt-3">
+                              <div className="space-y-2 animate-pulse">
+                                <div className="h-3 bg-slate-700/30 rounded w-3/4"></div>
+                                <div className="h-3 bg-slate-700/30 rounded w-1/2"></div>
+                              </div>
+                            </div>
+                          </div>
+                        ));
+                      })()}
+                    </div>
+                  </div>
+                  
+                  {/* 实时Agent执行日志 */}
+                  {activeLogs.length > 0 && (
+                    <div className="mt-8 bg-slate-900/40 backdrop-blur-sm rounded-xl border border-white/5 p-4">
+                      <h3 className="text-sm font-medium text-slate-400 mb-3 flex items-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Agent 执行日志
+                      </h3>
+                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                        {activeLogs.slice(-6).map((log, index) => (
+                          <div 
+                            key={index} 
+                            className={`flex items-center gap-3 text-sm p-2 rounded-lg transition-all ${
+                              log.status === 'active' ? 'bg-blue-500/10 border border-blue-500/20' : 'bg-slate-800/30'
+                            }`}
+                          >
+                            <span className={`w-2 h-2 rounded-full ${
+                              log.status === 'completed' ? 'bg-green-400' :
+                              log.status === 'failed' ? 'bg-red-400' :
+                              log.status === 'active' ? 'bg-blue-400 animate-pulse' :
+                              'bg-slate-500'
+                            }`}></span>
+                            <span className="text-slate-400 w-20 shrink-0">{log.agent}</span>
+                            <span className="text-slate-300 flex-1">{log.text}</span>
+                            {log.status === 'active' && (
+                              <Loader2 className="w-3 h-3 text-blue-400 animate-spin" />
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
                   <p className="text-center text-slate-500 text-sm mt-4 animate-pulse">正在编排多智能体网络...</p>
                       </>
                     );
@@ -675,14 +1220,38 @@ export default function InvestmentAgentApp() {
               {appState === 'completed' && (
                 <div className="mt-8 grid grid-cols-1 md:grid-cols-12 gap-6 animate-in fade-in slide-in-from-bottom-8 duration-700">
                 
-                  {/* 1. Executive Summary (Generated by Gemini) - Span 8 */}
-                  <div className="md:col-span-12 bg-slate-900/60 backdrop-blur-md rounded-2xl border border-white/10 p-6 shadow-xl relative overflow-hidden flex flex-col">
-                     <h2 className="text-2xl font-bold text-white mb-4 flex items-center gap-2">
-                       投资建议 <Sparkles className="w-5 h-5 text-red-400 animate-pulse" />
+                  {/* 1. Agent 执行过程展示 */}
+                  {agentOutputs.length > 0 && (
+                    <div className="md:col-span-12">
+                      <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                        <Cpu className="w-5 h-5 text-blue-400" />
+                        Agent 分析过程
+                      </h2>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {agentOutputs.map((agentResult, index) => renderAgentOutputCard(agentResult, index, false))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* 分隔线 */}
+                  {agentOutputs.length > 0 && (
+                    <div className="md:col-span-12">
+                      <div className="h-px bg-gradient-to-r from-transparent via-slate-600 to-transparent my-2"></div>
+                    </div>
+                  )}
+                
+                  {/* 2. 最终投资建议 */}
+                  <div className="md:col-span-12 bg-gradient-to-br from-slate-900/80 to-slate-800/60 backdrop-blur-md rounded-2xl border border-red-500/20 p-6 shadow-xl relative overflow-hidden flex flex-col">
+                     {/* 装饰背景 */}
+                     <div className="absolute top-0 right-0 w-64 h-64 bg-red-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
+                     
+                     <h2 className="text-2xl font-bold text-white mb-4 flex items-center gap-2 relative z-10">
+                       <Sparkles className="w-6 h-6 text-red-400" />
+                       最终投资建议
                      </h2>
                    
-                     {/* Gemini Content Area */}
-                     <div className="flex-1">
+                     {/* 投资建议内容区域 */}
+                     <div className="flex-1 relative z-10">
                        {isAiGenerating ? (
                          <div className="space-y-3 animate-pulse">
                            <div className="h-4 bg-slate-700/50 rounded w-3/4"></div>
@@ -690,16 +1259,47 @@ export default function InvestmentAgentApp() {
                            <div className="h-4 bg-slate-700/50 rounded w-5/6"></div>
                            <div className="flex items-center gap-2 text-sm text-red-500 mt-4">
                              <Loader2 className="w-4 h-4 animate-spin" />
-                             正在调用 Gemini 生成 A 股专业分析...
+                             正在生成投资建议...
                            </div>
                          </div>
                        ) : (
-                         <div
-                           className="prose prose-invert prose-sm max-w-none text-slate-300 leading-relaxed"
-                           dangerouslySetInnerHTML={{
-                             __html: renderMarkdown(aiSummary || '分析完成。正在等待 AI 生成报告...'),
-                           }}
-                         />
+                         <div className="space-y-4">
+                           {/* 简要摘要 */}
+                           {aiSummary && (
+                             <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
+                               <h3 className="text-sm font-medium text-slate-400 mb-2">分析摘要</h3>
+                               <div
+                                 className="prose prose-invert prose-sm max-w-none text-slate-300 leading-relaxed"
+                                 dangerouslySetInnerHTML={{
+                                   __html: renderMarkdown(aiSummary),
+                                 }}
+                               />
+                             </div>
+                           )}
+                           
+                           {/* 完整投资建议 */}
+                           {analysisResult?.recommendation && (
+                             <div className="bg-gradient-to-r from-red-500/10 to-orange-500/10 rounded-xl p-4 border border-red-500/20">
+                               <h3 className="text-sm font-medium text-red-400 mb-2 flex items-center gap-2">
+                                 <TrendingUp className="w-4 h-4" />
+                                 综合建议
+                               </h3>
+                               <div
+                                 className="prose prose-invert prose-sm max-w-none text-slate-200 leading-relaxed"
+                                 dangerouslySetInnerHTML={{
+                                   __html: renderMarkdown(analysisResult.recommendation),
+                                 }}
+                               />
+                             </div>
+                           )}
+                           
+                           {/* 无结果提示 */}
+                           {!aiSummary && !analysisResult?.recommendation && (
+                             <div className="text-slate-400 text-center py-8">
+                               分析完成，暂无详细建议生成
+                             </div>
+                           )}
+                         </div>
                        )}
                      </div>
 
