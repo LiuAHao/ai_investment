@@ -6,11 +6,11 @@
 """
 
 from flask import Blueprint, request, jsonify
-from agent.stock_agent import StockAgent
+from agent.data_agent import DataAgent
 from api.auth import get_current_user
 
 stock_bp = Blueprint("stock", __name__)
-stock_agent = StockAgent()
+stock_agent = DataAgent()
 
 
 @stock_bp.route("/analyze", methods=["GET"])

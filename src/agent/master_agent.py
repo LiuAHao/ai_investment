@@ -9,16 +9,17 @@
 import os
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, Optional, List
 
 from agent.analysis_agent import AnalysisAgent
 from agent.agent_protocol import AgentResult, WorkflowResult
+from agent.data_agent import DataAgent
+from agent.knowledge_agent import KnowledgeAgent
 from agent.langchain_orchestrator import LangChainOrchestrator
+from agent.llm_common import AgentConfig
 from agent.news_agent import NewsAgent
-from agent.decision_agent import DecisionAgent
 from agent.symbol_resolver import SymbolResolver
-from agent.stock_agent import StockAgent
-from rag.knowledge_tool import query_investment_knowledge
 
 
 class MasterAgent:
@@ -27,16 +28,16 @@ class MasterAgent:
     def __init__(
         self,
         news_agent: Optional[NewsAgent] = None,
-        stock_agent: Optional[StockAgent] = None,
-        decision_agent: Optional[DecisionAgent] = None,
+        stock_agent: Optional[DataAgent] = None,
         analysis_agent: Optional[AnalysisAgent] = None,
+        knowledge_agent: Optional[KnowledgeAgent] = None,
     ):
         self.news_agent = news_agent or NewsAgent()
-        self.stock_agent = stock_agent or StockAgent()
-        self.decision_agent = decision_agent or DecisionAgent()
+        self.stock_agent = stock_agent or DataAgent()
         self.analysis_agent = analysis_agent or AnalysisAgent()
+        self.knowledge_agent = knowledge_agent or KnowledgeAgent()
         self.symbol_resolver = SymbolResolver()
-        self.orchestrator_mode = os.getenv("AGENT_ORCHESTRATOR", "auto").strip().lower()
+        self.config = AgentConfig()
 
     @staticmethod
     def _extract_symbol(text: str) -> Optional[str]:
@@ -152,6 +153,172 @@ class MasterAgent:
             "tasks": tasks,
         }
 
+    # ------------------------------------------------------------------
+    #  数据收集 Agent 执行：单个 Agent 执行逻辑
+    # ------------------------------------------------------------------
+
+    def _run_data_agent(self, symbol: Optional[str]) -> tuple:
+        """执行 DataAgent，返回 (data_payload, AgentResult)"""
+        if not symbol:
+            return {}, AgentResult(
+                agent="DataAgent",
+                status="skipped",
+                data={"reason": "未识别到股票代码"},
+                error="未识别到股票代码",
+                latency_ms=0,
+            )
+        t0 = time.time()
+        try:
+            summary = self.stock_agent.analyze_daily_hist(symbol=symbol)
+            technical = self.stock_agent.analyze_technical_indicators(symbol=symbol)
+            data_payload = {"symbol": symbol, "summary": summary, "technical": technical}
+            return data_payload, AgentResult(
+                agent="DataAgent",
+                status="completed",
+                data=data_payload,
+                latency_ms=int((time.time() - t0) * 1000),
+            )
+        except Exception as exc:
+            return {}, AgentResult(
+                agent="DataAgent",
+                status="failed",
+                data={},
+                error=str(exc),
+                latency_ms=int((time.time() - t0) * 1000),
+            )
+
+    def _run_news_agent(self, keywords: List[str]) -> tuple:
+        """执行 NewsAgent，返回 (news_payload, AgentResult)"""
+        t0 = time.time()
+        try:
+            news_payload = self.news_agent.get_relevant_titles(keywords=keywords, limit=5, web_limit=5)
+            return news_payload, AgentResult(
+                agent="NewsAgent",
+                status="completed",
+                data=news_payload,
+                latency_ms=int((time.time() - t0) * 1000),
+            )
+        except Exception as exc:
+            return {}, AgentResult(
+                agent="NewsAgent",
+                status="failed",
+                data={},
+                error=str(exc),
+                latency_ms=int((time.time() - t0) * 1000),
+            )
+
+    def _run_knowledge_agent(self, user_query: str) -> tuple:
+        """执行 KnowledgeAgent，返回 (knowledge_payload, AgentResult)"""
+        t0 = time.time()
+        try:
+            knowledge_payload = self.knowledge_agent.query(query=user_query, top_k=5)
+            return knowledge_payload, AgentResult(
+                agent="KnowledgeAgent",
+                status="completed",
+                data=knowledge_payload,
+                latency_ms=int((time.time() - t0) * 1000),
+            )
+        except Exception as exc:
+            return {}, AgentResult(
+                agent="KnowledgeAgent",
+                status="failed",
+                data={},
+                error=str(exc),
+                latency_ms=int((time.time() - t0) * 1000),
+            )
+
+    # ------------------------------------------------------------------
+    #  串行执行三个数据收集 Agent
+    # ------------------------------------------------------------------
+
+    def _execute_collectors_serial(
+        self,
+        symbol: Optional[str],
+        user_query: str,
+        keywords: List[str],
+        on_agent_complete: Optional[callable] = None,
+    ) -> tuple:
+        """串行执行 DataAgent → NewsAgent → KnowledgeAgent"""
+        agent_results: List[AgentResult] = []
+
+        data_payload, stock_result = self._run_data_agent(symbol)
+        agent_results.append(stock_result)
+        if on_agent_complete:
+            on_agent_complete("DataAgent", stock_result.to_dict())
+
+        news_payload, news_result = self._run_news_agent(keywords)
+        agent_results.append(news_result)
+        if on_agent_complete:
+            on_agent_complete("NewsAgent", news_result.to_dict())
+
+        knowledge_payload, knowledge_result = self._run_knowledge_agent(user_query)
+        agent_results.append(knowledge_result)
+        if on_agent_complete:
+            on_agent_complete("KnowledgeAgent", knowledge_result.to_dict())
+
+        return data_payload, news_payload, knowledge_payload, agent_results
+
+    # ------------------------------------------------------------------
+    #  并行执行三个数据收集 Agent（ThreadPoolExecutor）
+    # ------------------------------------------------------------------
+
+    def _execute_collectors_parallel(
+        self,
+        symbol: Optional[str],
+        user_query: str,
+        keywords: List[str],
+        on_agent_complete: Optional[callable] = None,
+    ) -> tuple:
+        """并行执行 DataAgent / NewsAgent / KnowledgeAgent"""
+        data_payload: Dict[str, Any] = {}
+        news_payload: Dict[str, Any] = {}
+        knowledge_payload: Dict[str, Any] = {}
+        results_map: Dict[str, AgentResult] = {}
+        timeout = self.config.parallel_timeout
+
+        with ThreadPoolExecutor(max_workers=3, thread_name_prefix="agent") as pool:
+            futures = {
+                pool.submit(self._run_data_agent, symbol): "DataAgent",
+                pool.submit(self._run_news_agent, keywords): "NewsAgent",
+                pool.submit(self._run_knowledge_agent, user_query): "KnowledgeAgent",
+            }
+            for future in as_completed(futures, timeout=timeout):
+                agent_name = futures[future]
+                try:
+                    payload, result = future.result()
+                except Exception as exc:
+                    payload = {}
+                    result = AgentResult(
+                        agent=agent_name, status="failed", data={}, error=str(exc)
+                    )
+
+                results_map[agent_name] = result
+                if agent_name == "DataAgent":
+                    data_payload = payload
+                elif agent_name == "NewsAgent":
+                    news_payload = payload
+                else:
+                    knowledge_payload = payload
+
+                if on_agent_complete:
+                    on_agent_complete(agent_name, result.to_dict())
+
+        # 结果按固定顺序排列，保证输出一致
+        agent_results: List[AgentResult] = []
+        for name in ("DataAgent", "NewsAgent", "KnowledgeAgent"):
+            if name in results_map:
+                agent_results.append(results_map[name])
+            else:
+                agent_results.append(AgentResult(
+                    agent=name, status="failed", data={}, error="执行超时"
+                ))
+
+        return data_payload, news_payload, knowledge_payload, agent_results
+
+    # ------------------------------------------------------------------
+    #  Phase 2 主编排入口
+    # ------------------------------------------------------------------
+
     def execute_phase2(self, user_query: str, preferences: Optional[Dict[str, Any]] = None, on_agent_complete: Optional[callable] = None) -> Dict[str, Any]:
         """
         执行 Phase 2 多 Agent 编排
@@ -161,7 +328,7 @@ class MasterAgent:
             preferences: 用户偏好
             on_agent_complete: Agent完成时的回调函数，参数为 (agent_name, agent_result)
         """
-        mode = self.orchestrator_mode
+        mode = self.config.orchestrator_mode
         if mode in {"langchain", "auto"}:
             try:
                 if LangChainOrchestrator.is_available():
@@ -169,7 +336,7 @@ class MasterAgent:
                         stock_agent=self.stock_agent,
                         news_agent=self.news_agent,
                         analysis_agent=self.analysis_agent,
-                        knowledge_fn=query_investment_knowledge,
+                        knowledge_fn=self.knowledge_agent.query,
                     )
                     langchain_result = orchestrator.execute(
                         user_query=user_query,
@@ -193,92 +360,18 @@ class MasterAgent:
 
         task_plan = self.build_task_plan(user_query)
         task_plan["orchestrator"] = "custom"
+        task_plan["parallel"] = self.config.parallel_enabled
         if fallback_error:
             task_plan["fallback_reason"] = fallback_error
         symbol = task_plan.get("symbol")
-        agent_results: List[AgentResult] = []
+        keywords = self._extract_keywords(user_query, symbol)
 
-        data_payload: Dict[str, Any] = {}
-        news_payload: Dict[str, Any] = {}
-        knowledge_payload: Dict[str, Any] = {}
-
-        # StockAgent 执行
-        if symbol:
-            t0 = time.time()
-            try:
-                summary = self.stock_agent.analyze_daily_hist(symbol=symbol)
-                technical = self.stock_agent.analyze_technical_indicators(symbol=symbol)
-                data_payload = {"symbol": symbol, "summary": summary, "technical": technical}
-                stock_result = AgentResult(
-                    agent="StockAgent",
-                    status="completed",
-                    data=data_payload,
-                    latency_ms=int((time.time() - t0) * 1000),
-                )
-            except Exception as exc:
-                stock_result = AgentResult(
-                    agent="StockAgent",
-                    status="failed",
-                    data={},
-                    error=str(exc),
-                    latency_ms=int((time.time() - t0) * 1000),
-                )
+        if self.config.parallel_enabled:
+            data_payload, news_payload, knowledge_payload, agent_results = \
+                self._execute_collectors_parallel(symbol, user_query, keywords, on_agent_complete)
         else:
-            stock_result = AgentResult(
-                agent="StockAgent",
-                status="skipped",
-                data={"reason": "未识别到股票代码"},
-                error="未识别到股票代码",
-                latency_ms=0,
-            )
-        agent_results.append(stock_result)
-        if on_agent_complete:
-            on_agent_complete("StockAgent", stock_result.to_dict())
-
-        # NewsAgent 执行
-        t1 = time.time()
-        try:
-            keywords = self._extract_keywords(user_query, symbol)
-            news_payload = self.news_agent.get_relevant_titles(keywords=keywords, limit=5, web_limit=5)
-            news_result = AgentResult(
-                agent="NewsAgent",
-                status="completed",
-                data=news_payload,
-                latency_ms=int((time.time() - t1) * 1000),
-            )
-        except Exception as exc:
-            news_result = AgentResult(
-                agent="NewsAgent",
-                status="failed",
-                data={},
-                error=str(exc),
-                latency_ms=int((time.time() - t1) * 1000),
-            )
-        agent_results.append(news_result)
-        if on_agent_complete:
-            on_agent_complete("NewsAgent", news_result.to_dict())
-
-        # KnowledgeAgent 执行
-        t2 = time.time()
-        try:
-            knowledge_payload = query_investment_knowledge(query=user_query, top_k=5)
-            knowledge_result = AgentResult(
-                agent="KnowledgeAgent",
-                status="completed",
-                data=knowledge_payload,
-                latency_ms=int((time.time() - t2) * 1000),
-            )
-        except Exception as exc:
-            knowledge_result = AgentResult(
-                agent="KnowledgeAgent",
-                status="failed",
-                data={},
-                error=str(exc),
-                latency_ms=int((time.time() - t2) * 1000),
-            )
-        agent_results.append(knowledge_result)
-        if on_agent_complete:
-            on_agent_complete("KnowledgeAgent", knowledge_result.to_dict())
+            data_payload, news_payload, knowledge_payload, agent_results = \
+                self._execute_collectors_serial(symbol, user_query, keywords, on_agent_complete)
 
         # AnalysisAgent 执行
         t3 = time.time()

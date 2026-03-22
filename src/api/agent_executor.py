@@ -15,7 +15,6 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from agent.master_agent import MasterAgent
-from agent.stock_agent import StockAgent
 from agent.news_agent import NewsAgent
 from models.database import AnalysisSession, AgentLog
 from models import SessionLocal
@@ -44,7 +43,7 @@ class AgentWorkflowExecutor:
         self.agent_results = []  # 存储实时的Agent结果
         self._completion_time: Optional[float] = None
         self._agent_progress_map = {
-            "StockAgent": 30,
+            "DataAgent": 30,
             "NewsAgent": 50,
             "KnowledgeAgent": 70,
             "AnalysisAgent": 90,
@@ -144,7 +143,7 @@ class AgentWorkflowExecutor:
             reason = data.get("reason") or error or "该阶段已跳过"
             return f"已跳过: {reason}"
         
-        if agent_name == "StockAgent":
+        if agent_name == "DataAgent":
             summary = data.get("summary", {})
             technical = data.get("technical", {})
             if not summary and not technical:
@@ -293,7 +292,7 @@ class AgentWorkflowExecutor:
             data_payload = {}
             news_payload = {}
             for item in workflow_result.get("agent_results", []):
-                if item.get("agent") == "StockAgent":
+                if item.get("agent") == "DataAgent":
                     data_payload = item.get("data", {})
                 elif item.get("agent") == "NewsAgent":
                     news_payload = item.get("data", {})

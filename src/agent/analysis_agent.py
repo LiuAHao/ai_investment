@@ -9,18 +9,18 @@
 import json
 from typing import Any, Dict, Optional
 
-from agent.decision_agent import _build_client, _get_env
+from agent.llm_common import build_client, get_env
 
 
 class AnalysisAgent:
     """分析决策 Agent"""
 
     def __init__(self, model: Optional[str] = None):
-        self.client = _build_client()
+        self.client = build_client()
         self.model = (
             model
-            or _get_env("OPENAI_MODEL")
-            or _get_env("DEEPSEEK_MODEL")
+            or get_env("OPENAI_MODEL")
+            or get_env("DEEPSEEK_MODEL")
             or "deepseek-chat"
         )
 

@@ -15,11 +15,11 @@ if PROJECT_SRC not in sys.path:
 
 os.environ["AKSHARE_DISABLE_PROXY"] = "1"
 
-from agent.stock_agent import StockAgent
+from agent.data_agent import DataAgent
 
 
 def main() -> None:
-    agent = StockAgent()
+    agent = DataAgent()
     symbols = ["SH000001", "000001.SH"]
     for symbol in symbols:
         print(f"\n测试 {symbol}...")

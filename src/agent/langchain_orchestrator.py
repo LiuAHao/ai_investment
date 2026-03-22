@@ -14,7 +14,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from agent.agent_protocol import AgentResult, WorkflowResult
-from agent.decision_agent import _get_env
+from agent.llm_common import get_env
 
 
 class LangChainOrchestrator:
@@ -106,9 +106,9 @@ class LangChainOrchestrator:
             result = self.knowledge_fn(query=query, top_k=5)
             return json.dumps(result, ensure_ascii=False, default=str)
 
-        model = _get_env("OPENAI_MODEL") or _get_env("DEEPSEEK_MODEL") or "deepseek-chat"
-        api_key = _get_env("DEEPSEEK_API_KEY") or _get_env("OPENAI_API_KEY")
-        base_url = _get_env("DEEPSEEK_BASE_URL") or _get_env("OPENAI_BASE_URL") or None
+        model = get_env("OPENAI_MODEL") or get_env("DEEPSEEK_MODEL") or "deepseek-chat"
+        api_key = get_env("DEEPSEEK_API_KEY") or get_env("OPENAI_API_KEY")
+        base_url = get_env("DEEPSEEK_BASE_URL") or get_env("OPENAI_BASE_URL") or None
 
         llm_kwargs: Dict[str, Any] = {
             "model": model,
@@ -188,7 +188,7 @@ class LangChainOrchestrator:
             if tool_name == "data_agent_tool":
                 called["data_agent_tool"] = True
                 data_payload = obs_data
-                agent_results.append(AgentResult(agent="StockAgent", status="completed", data=obs_data, latency_ms=0))
+                agent_results.append(AgentResult(agent="DataAgent", status="completed", data=obs_data, latency_ms=0))
             elif tool_name == "news_agent_tool":
                 called["news_agent_tool"] = True
                 news_payload = obs_data
@@ -204,13 +204,13 @@ class LangChainOrchestrator:
                     summary = self.stock_agent.analyze_daily_hist(symbol=symbol)
                     technical = self.stock_agent.analyze_technical_indicators(symbol=symbol)
                     data_payload = {"symbol": symbol, "summary": summary, "technical": technical}
-                    agent_results.append(AgentResult(agent="StockAgent", status="completed", data=data_payload, latency_ms=0))
+                    agent_results.append(AgentResult(agent="DataAgent", status="completed", data=data_payload, latency_ms=0))
                 except Exception as exc:
-                    agent_results.append(AgentResult(agent="StockAgent", status="failed", data={}, error=str(exc), latency_ms=0))
+                    agent_results.append(AgentResult(agent="DataAgent", status="failed", data={}, error=str(exc), latency_ms=0))
             else:
                 agent_results.append(
                     AgentResult(
-                        agent="StockAgent",
+                        agent="DataAgent",
                         status="skipped",
                         data={"reason": "未识别到股票代码"},
                         error="未识别到股票代码",

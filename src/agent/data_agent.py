@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-股票 Agent：获取与分析行情数据
+数据 Agent：获取与分析行情数据
 """
 
 from typing import Dict, Optional
@@ -27,8 +27,8 @@ from stock.stock_api import (
 )
 
 
-class StockAgent:
-    """股票 Agent"""
+class DataAgent:
+    """数据 Agent"""
 
     @staticmethod
     @contextmanager
@@ -92,7 +92,7 @@ class StockAgent:
         end = end_date or self.default_end_date
         norm_symbol = self._normalize_symbol(symbol)
         logger.info(
-            "股票Agent: 获取历史行情, symbol=%s, normalized=%s, start=%s, end=%s, period=%s, adjust=%s",
+            "数据Agent: 获取历史行情, symbol=%s, normalized=%s, start=%s, end=%s, period=%s, adjust=%s",
             symbol,
             norm_symbol,
             start,
@@ -110,7 +110,7 @@ class StockAgent:
                     adjust=adjust,
                 )
         except Exception as exc:
-            logger.error("股票Agent: 获取历史行情失败, error=%s", str(exc))
+            logger.error("数据Agent: 获取历史行情失败, error=%s", str(exc))
             return {"symbol": symbol, "rows": 0, "error": str(exc)}
 
         if df is None:
@@ -123,7 +123,7 @@ class StockAgent:
         }
         if include_head and len(df) > 0:
             summary["head"] = df.head(3).to_dict(orient="records")
-        logger.info("股票Agent: 获取历史行情完成, rows=%s", len(df))
+        logger.info("数据Agent: 获取历史行情完成, rows=%s", len(df))
         return summary
 
     def _fetch_hist_with_fallback(
@@ -147,12 +147,12 @@ class StockAgent:
                 adjust=adjust,
             )
         except Exception as exc:
-            logger.warning("股票Agent: 东方财富请求异常，进入回退流程, error=%s", str(exc))
+            logger.warning("数据Agent: 东方财富请求异常，进入回退流程, error=%s", str(exc))
             df = None
         if df is not None and len(df) > 0:
             return df
 
-        logger.warning("股票Agent: 东方财富返回空数据，尝试腾讯历史数据")
+        logger.warning("数据Agent: 东方财富返回空数据，尝试腾讯历史数据")
         try:
             df = get_stock_zh_a_hist_tx(symbol=symbol, adjust=adjust)
         except Exception:
@@ -160,7 +160,7 @@ class StockAgent:
         if df is not None and len(df) > 0:
             return df
 
-        logger.warning("股票Agent: 腾讯返回空数据，尝试新浪日线数据")
+        logger.warning("数据Agent: 腾讯返回空数据，尝试新浪日线数据")
         try:
             df = get_stock_zh_a_daily(symbol=symbol, adjust=adjust)
         except Exception:
@@ -192,12 +192,12 @@ class StockAgent:
         Returns:
             摘要字典
         """
-        logger.info("股票Agent: 获取实时行情, symbols=%s, limit=%s", symbols, limit)
+        logger.info("数据Agent: 获取实时行情, symbols=%s, limit=%s", symbols, limit)
         try:
             with self._without_proxy():
                 df = get_stock_zh_a_spot_em()
         except Exception as exc:
-            logger.error("股票Agent: 获取实时行情失败, error=%s", str(exc))
+            logger.error("数据Agent: 获取实时行情失败, error=%s", str(exc))
             return {"rows": 0, "error": str(exc)}
 
         if df is None or len(df) == 0:
@@ -232,12 +232,12 @@ class StockAgent:
         Returns:
             汇总字典
         """
-        logger.info("股票Agent: 获取上交所市场总貌")
+        logger.info("数据Agent: 获取上交所市场总貌")
         try:
             with self._without_proxy():
                 df = get_stock_sse_summary()
         except Exception as exc:
-            logger.error("股票Agent: 获取上交所总貌失败, error=%s", str(exc))
+            logger.error("数据Agent: 获取上交所总貌失败, error=%s", str(exc))
             return {"rows": 0, "error": str(exc)}
 
         if df is None or len(df) == 0:
@@ -259,12 +259,12 @@ class StockAgent:
             汇总字典
         """
         use_date = date.replace("-", "") if date else ""
-        logger.info("股票Agent: 获取深交所市场总貌, date=%s", use_date or "latest")
+        logger.info("数据Agent: 获取深交所市场总貌, date=%s", use_date or "latest")
         try:
             with self._without_proxy():
                 df = get_stock_szse_summary(date=use_date)
         except Exception as exc:
-            logger.error("股票Agent: 获取深交所总貌失败, error=%s", str(exc))
+            logger.error("数据Agent: 获取深交所总貌失败, error=%s", str(exc))
             return {"rows": 0, "error": str(exc)}
 
         if df is None or len(df) == 0:
@@ -286,12 +286,12 @@ class StockAgent:
             汇总字典
         """
         use_date = date.replace("-", "") if date else ""
-        logger.info("股票Agent: 获取上交所每日概况, date=%s", use_date or "latest")
+        logger.info("数据Agent: 获取上交所每日概况, date=%s", use_date or "latest")
         try:
             with self._without_proxy():
                 df = get_stock_sse_deal_daily(date=use_date)
         except Exception as exc:
-            logger.error("股票Agent: 获取上交所每日概况失败, error=%s", str(exc))
+            logger.error("数据Agent: 获取上交所每日概况失败, error=%s", str(exc))
             return {"rows": 0, "error": str(exc)}
 
         if df is None or len(df) == 0:
@@ -327,7 +327,7 @@ class StockAgent:
         end = end_date or self.default_end_date
         norm_symbol = self._normalize_symbol(symbol)
         logger.info(
-            "股票Agent: 分析历史行情, symbol=%s, normalized=%s, start=%s, end=%s, period=%s, adjust=%s",
+            "数据Agent: 分析历史行情, symbol=%s, normalized=%s, start=%s, end=%s, period=%s, adjust=%s",
             symbol,
             norm_symbol,
             start,
@@ -345,12 +345,12 @@ class StockAgent:
                     adjust=adjust,
                 )
         except Exception as exc:
-            logger.error("股票Agent: 分析历史行情失败, error=%s", str(exc))
+            logger.error("数据Agent: 分析历史行情失败, error=%s", str(exc))
             return {"symbol": symbol, "rows": 0, "error": str(exc)}
 
         if df is None or len(df) == 0:
             logger.warning(
-                "股票Agent: 分析历史行情为空, symbol=%s, normalized=%s, start=%s, end=%s, period=%s, adjust=%s",
+                "数据Agent: 分析历史行情为空, symbol=%s, normalized=%s, start=%s, end=%s, period=%s, adjust=%s",
                 symbol,
                 norm_symbol,
                 start,
@@ -428,7 +428,7 @@ class StockAgent:
 
         if amount_col:
             analysis["avg_amount"] = float(pd.Series(df[amount_col]).mean())
-        logger.info("股票Agent: 分析历史行情完成, rows=%s", len(df))
+        logger.info("数据Agent: 分析历史行情完成, rows=%s", len(df))
         return analysis
 
     def analyze_technical_indicators(
@@ -457,7 +457,7 @@ class StockAgent:
         end = end_date or self.default_end_date
         norm_symbol = self._normalize_symbol(symbol)
         logger.info(
-            "股票Agent: 计算技术指标, symbol=%s, normalized=%s, start=%s, end=%s, period=%s, adjust=%s",
+            "数据Agent: 计算技术指标, symbol=%s, normalized=%s, start=%s, end=%s, period=%s, adjust=%s",
             symbol,
             norm_symbol,
             start,
@@ -476,12 +476,12 @@ class StockAgent:
                     adjust=adjust,
                 )
         except Exception as exc:
-            logger.error("股票Agent: 技术指标失败, error=%s", str(exc))
+            logger.error("数据Agent: 技术指标失败, error=%s", str(exc))
             return {"symbol": symbol, "rows": 0, "error": str(exc)}
 
         if df is None or len(df) == 0:
             logger.warning(
-                "股票Agent: 技术指标数据为空, symbol=%s, normalized=%s, start=%s, end=%s, period=%s, adjust=%s",
+                "数据Agent: 技术指标数据为空, symbol=%s, normalized=%s, start=%s, end=%s, period=%s, adjust=%s",
                 symbol,
                 norm_symbol,
                 start,
@@ -548,7 +548,7 @@ class StockAgent:
             "trend": trend,
             "momentum_pct": momentum_pct,
         }
-        logger.info("股票Agent: 技术指标完成, rows=%s", len(df))
+        logger.info("数据Agent: 技术指标完成, rows=%s", len(df))
         return result
 
     def summarize(self, symbol: str) -> Dict:
@@ -561,7 +561,7 @@ class StockAgent:
         Returns:
             汇总字典
         """
-        logger.info("股票Agent: 汇总开始, symbol=%s", symbol)
+        logger.info("数据Agent: 汇总开始, symbol=%s", symbol)
         analysis = self.analyze_daily_hist(symbol=symbol)
         technical = self.analyze_technical_indicators(symbol=symbol)
         return {

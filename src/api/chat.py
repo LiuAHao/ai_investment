@@ -6,19 +6,15 @@
 """
 
 from flask import Blueprint, request, jsonify
-from sqlalchemy.orm import Session
-from datetime import datetime
 from models.database import ChatHistory
 from models import get_db
 from api.auth import get_current_user
-from agent.decision_agent import DecisionAgent
-from agent.investment_expert_agent import InvestmentExpertAgent
+from agent.master_agent import MasterAgent
 from utils.quota_manager import QuotaManager
 
 chat_bp = Blueprint("chat", __name__)
 
-decision_agent = DecisionAgent()
-expert_agent = InvestmentExpertAgent()
+master_agent = MasterAgent()
 quota_manager = QuotaManager()
 
 
@@ -199,8 +195,11 @@ def ask():
             db.add(user_chat)
             db.commit()
 
-            tool_results = decision_agent.run_tools(content, max_rounds=1)
-            reply_text = expert_agent.summarize_brief(content, tool_results, preferences)
+            workflow_result = master_agent.execute_phase2(
+                user_query=content,
+                preferences=preferences,
+            )
+            reply_text = workflow_result.get("recommendation", "")
 
             assistant_chat = ChatHistory(
                 user_id=user.id,

@@ -83,10 +83,48 @@ class NewsAgent:
             结果摘要
         """
         logger.info("新闻Agent: 获取相关新闻, keywords=%s", keywords)
-        web_results = self.search_web_by_keywords(keywords, web_limit=web_limit)
+        raw_results = self.search_web_by_keywords(keywords, web_limit=web_limit)
+
+        # 1. 标题去重：归一化后完全相同的条目只保留第一条
+        deduped = self._deduplicate(raw_results)
+
+        # 2. 按关键词相关性排序（匹配度高的排前），不删除任何条目
+        sorted_results = self._sort_by_relevance(deduped, keywords)
+
+        # 3. 提取标题列表填充 relevant_titles
+        relevant_titles = [item["title"] for item in sorted_results if item.get("title")]
+
         return {
             "timestamp": datetime.now().isoformat(timespec="seconds"),
-            "total_titles": 0,
-            "relevant_titles": [],
-            "web_results": web_results,
+            "total_titles": len(sorted_results),
+            "relevant_titles": relevant_titles,
+            "web_results": sorted_results,
         }
+
+    @staticmethod
+    def _deduplicate(results: List[Dict[str, str]]) -> List[Dict[str, str]]:
+        """按标题去重，保留第一次出现的条目"""
+        seen = set()
+        output = []
+        for item in results:
+            key = item.get("title", "").strip().lower()
+            if key and key in seen:
+                continue
+            if key:
+                seen.add(key)
+            output.append(item)
+        return output
+
+    @staticmethod
+    def _sort_by_relevance(
+        results: List[Dict[str, str]], keywords: List[str]
+    ) -> List[Dict[str, str]]:
+        """按关键词在标题+摘要中出现的次数降序排列，不删除任何条目"""
+        if not keywords:
+            return results
+
+        def score(item: Dict[str, str]) -> int:
+            text = f"{item.get('title', '')} {item.get('snippet', '')}".lower()
+            return sum(text.count(kw.lower()) for kw in keywords if kw)
+
+        return sorted(results, key=score, reverse=True)

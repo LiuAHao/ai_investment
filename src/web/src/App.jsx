@@ -79,7 +79,7 @@ export default function InvestmentAgentApp() {
       const mapping = {
         DecisionAgent: '决策分析',
         NewsAgent: '新闻分析',
-        StockAgent: '数据获取',
+        DataAgent: '数据获取',
         MasterAgent: '任务编排',
         KnowledgeAgent: '知识检索',
       };
@@ -444,9 +444,9 @@ export default function InvestmentAgentApp() {
       const { agent, status, data, error, latency_ms } = agentResult;
       
       const agentConfig = {
-        StockAgent: { 
-          label: '数据Agent', 
-          icon: Database, 
+        DataAgent: {
+          label: '数据Agent',
+          icon: Database,
           color: 'blue',
           desc: '股票数据获取与技术分析'
         },
@@ -481,7 +481,7 @@ export default function InvestmentAgentApp() {
       };
       const statusStyle = statusConfig[status] || statusConfig.completed;
 
-      // 渲染StockAgent详细内容
+      // 渲染数据Agent详细内容
       const renderStockDetail = (data) => {
         const summary = data?.summary || {};
         const technical = data?.technical || {};
@@ -799,7 +799,7 @@ export default function InvestmentAgentApp() {
           return <p className="text-sm text-yellow-400">{data.reason}</p>;
         }
         switch (agent) {
-          case 'StockAgent': return renderStockDetail(data);
+          case 'DataAgent': return renderStockDetail(data);
           case 'NewsAgent': return renderNewsDetail(data);
           case 'KnowledgeAgent': return renderKnowledgeDetail(data);
           case 'AnalysisAgent': return renderAnalysisDetail(data);
@@ -1141,7 +1141,7 @@ export default function InvestmentAgentApp() {
                       ))}
                       {/* 未完成的Agent - 显示 pending 占位卡片 */}
                       {(() => {
-                        const expectedAgents = ['StockAgent', 'NewsAgent', 'KnowledgeAgent', 'AnalysisAgent'];
+                        const expectedAgents = ['DataAgent', 'NewsAgent', 'KnowledgeAgent', 'AnalysisAgent'];
                         const completedAgentNames = agentOutputs.map(a => a.agent);
                         const pendingAgents = expectedAgents.filter(a => !completedAgentNames.includes(a));
                         return pendingAgents.map((agentName, idx) => (
@@ -1156,7 +1156,7 @@ export default function InvestmentAgentApp() {
                                 </div>
                                 <div>
                                   <h4 className="text-sm font-medium text-slate-400">
-                                    {({StockAgent: '数据Agent', NewsAgent: '新闻Agent', KnowledgeAgent: '知识Agent', AnalysisAgent: '分析Agent'})[agentName]}
+                                    {({DataAgent: '数据Agent', NewsAgent: '新闻Agent', KnowledgeAgent: '知识Agent', AnalysisAgent: '分析Agent'})[agentName]}
                                   </h4>
                                   <p className="text-xs text-slate-600">等待执行</p>
                                 </div>
