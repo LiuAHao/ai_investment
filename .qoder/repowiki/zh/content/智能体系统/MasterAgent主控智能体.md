@@ -19,24 +19,31 @@
 3. [核心组件](#核心组件)
 4. [架构概览](#架构概览)
 5. [详细组件分析](#详细组件分析)
-6. [回调机制与实时监控](#回调机制与实时监控)
-7. [依赖关系分析](#依赖关系分析)
-8. [性能考虑](#性能考虑)
-9. [故障排除指南](#故障排除指南)
-10. [结论](#结论)
-11. [附录](#附录)
+6. [并行执行与性能优化](#并行执行与性能优化)
+7. [LLM通用配置管理](#llm通用配置管理)
+8. [回调机制与实时监控](#回调机制与实时监控)
+9. [依赖关系分析](#依赖关系分析)
+10. [性能考虑](#性能考虑)
+11. [故障排除指南](#故障排除指南)
+12. [结论](#结论)
+13. [附录](#附录)
 
 ## 简介
 
 MasterAgent主控智能体是AI投资分析系统的核心协调器，负责管理多个专业Agent的协作执行。该系统采用双编排器架构，既支持基于LangChain的AgentExecutor编排，也提供自研编排器作为降级方案，确保在各种环境下都能稳定运行。
 
-**最新更新**：系统现已增强回调机制和实时监控功能，支持在Agent执行过程中实时获取执行状态和中间结果。
+**最新重大增强**：
+- **并行执行能力**：新增ThreadPoolExecutor并行执行三个数据收集Agent，显著提升响应速度
+- **LLM通用配置管理**：引入AgentConfig类统一管理所有Agent配置参数
+- **增强的回调机制**：在Agent执行过程中实时回调通知，支持完整的实时监控
+- **改进的错误处理**：更完善的降级策略和错误恢复机制
 
 系统的主要职责包括：
 - **任务计划生成**：根据用户查询生成标准化的任务执行计划
 - **符号解析**：识别和解析股票代码、公司名称等金融实体
 - **关键字提取**：从用户查询中提取关键信息用于新闻和知识检索
 - **多Agent编排协调**：协调数据Agent、新闻Agent、知识Agent和分析Agent的协同工作
+- **并行执行优化**：通过线程池并行执行多个Agent任务
 - **错误处理与降级**：在编排器不可用时自动切换到自研编排器
 - **实时回调监控**：支持在Agent执行过程中实时获取执行状态和中间结果
 
@@ -52,10 +59,10 @@ AA[分析Agent]
 DA[数据Agent]
 NA[新闻Agent]
 KA[知识Agent]
+AC[Agent配置管理]
 end
 subgraph "基础设施"
 AP[Agent协议]
-AC[Agent配置管理]
 AE[Agent执行器]
 DB[数据库模型]
 end
@@ -99,6 +106,7 @@ MasterAgent是整个系统的协调中心，负责：
 - **编排模式控制**：通过环境变量控制编排器选择（auto/langchain/custom）
 - **任务计划构建**：生成标准化的任务执行计划
 - **执行流程管理**：协调各个Agent的执行顺序和数据传递
+- **并行执行调度**：使用ThreadPoolExecutor并行执行多个Agent
 - **结果整合**：将各Agent的结果整合为统一的输出格式
 - **回调机制支持**：支持在Agent执行过程中实时回调通知
 
@@ -193,7 +201,11 @@ CustomExec --> CheckCallback{"检查回调参数"}
 CheckCallback --> |存在| SetupCallback["设置回调函数"]
 CheckCallback --> |不存在| ExecTasks["执行各Agent任务"]
 SetupCallback --> ExecTasks
-ExecTasks --> CollectResults["收集Agent结果"]
+ExecTasks --> CheckParallel{"检查并行执行"}
+CheckParallel --> |启用| ParallelExec["并行执行数据收集Agent"]
+CheckParallel --> |禁用| SerialExec["串行执行数据收集Agent"]
+ParallelExec --> CollectResults["收集Agent结果"]
+SerialExec --> CollectResults
 CollectResults --> CheckErrors{"是否有错误?"}
 CheckErrors --> |是| MarkDegraded["标记降级状态"]
 CheckErrors --> |否| NormalFlow["正常流程"]
@@ -312,6 +324,124 @@ WORKFLOW_RESULT ||--o{ AGENT_RESULT : produces
 **章节来源**
 - [agent_protocol.py:74-116](file://src/agent/agent_protocol.py#L74-L116)
 
+## 并行执行与性能优化
+
+### 并行执行架构
+
+MasterAgent引入了强大的并行执行能力，通过ThreadPoolExecutor同时执行三个数据收集Agent：
+
+```mermaid
+flowchart TD
+ParallelStart([并行执行开始]) --> CreatePool["创建线程池"]
+CreatePool --> SubmitTasks["提交三个Agent任务"]
+SubmitTasks --> WaitCompletion["等待任务完成"]
+WaitCompletion --> ProcessResults["处理完成的任务"]
+ProcessResults --> CheckTimeout{"检查超时"}
+CheckTimeout --> |未超时| CollectResults["收集所有结果"]
+CheckTimeout --> |已超时| HandleTimeout["处理超时任务"]
+HandleTimeout --> CollectResults
+CollectResults --> ExecuteAnalysis["执行分析Agent"]
+ExecuteAnalysis --> Finalize["最终化输出"]
+Finalize --> ParallelEnd([并行执行结束])
+```
+
+**图表来源**
+- [master_agent.py:265-316](file://src/agent/master_agent.py#L265-L316)
+
+### 线程池配置
+
+并行执行使用以下配置：
+- **最大工作线程数**：3个（对应三个数据收集Agent）
+- **线程前缀**：`agent`（便于调试和监控）
+- **超时时间**：通过`AgentConfig.parallel_timeout`配置，默认30秒
+- **执行策略**：使用`as_completed`确保快速响应最先完成的任务
+
+### 并行执行优势
+
+1. **性能提升**：三个Agent可同时执行，理论上可节省约2/3的时间
+2. **资源优化**：共享线程池，避免创建过多线程
+3. **错误隔离**：单个Agent失败不会影响其他Agent的执行
+4. **超时保护**：统一的超时机制防止长时间阻塞
+
+### 配置管理
+
+并行执行通过AgentConfig类统一管理：
+- **并行开关**：`AGENT_PARALLEL=true`启用并行执行
+- **超时设置**：`AGENT_PARALLEL_TIMEOUT=30`设置超时时间为30秒
+- **动态重载**：支持运行时重新加载配置
+
+**章节来源**
+- [master_agent.py:265-316](file://src/agent/master_agent.py#L265-L316)
+- [llm_common.py:65-74](file://src/agent/llm_common.py#L65-L74)
+
+## LLM通用配置管理
+
+### AgentConfig类设计
+
+引入了统一的配置管理机制，通过AgentConfig类集中管理所有Agent配置：
+
+```mermaid
+classDiagram
+class AgentConfig {
+-orchestrator_mode : str
+-parallel_enabled : bool
+-parallel_timeout : int
+-_loaded : bool
++__new__() AgentConfig
++__init__() None
++reload() None
+}
+class MasterAgent {
+-config : AgentConfig
++execute_phase2() Dict
+}
+class LangChainOrchestrator {
+-config : AgentConfig
++execute() Dict
+}
+MasterAgent --> AgentConfig : 使用
+LangChainOrchestrator --> AgentConfig : 使用
+```
+
+**图表来源**
+- [llm_common.py:49-80](file://src/agent/llm_common.py#L49-L80)
+- [master_agent.py:28-40](file://src/agent/master_agent.py#L28-L40)
+
+### 配置项详解
+
+| 配置项 | 默认值 | 说明 | 环境变量 |
+|--------|--------|------|----------|
+| orchestrator_mode | auto | 编排器模式：auto/langchain/custom | AGENT_ORCHESTRATOR |
+| parallel_enabled | true | 是否启用并行执行 | AGENT_PARALLEL |
+| parallel_timeout | 30 | 并行执行超时时间（秒） | AGENT_PARALLEL_TIMEOUT |
+
+### 配置加载机制
+
+配置通过以下步骤加载：
+1. **环境变量读取**：从`.env`文件和系统环境变量读取
+2. **默认值设置**：为未设置的配置项设置合理默认值
+3. **单例模式**：确保全局只有一个配置实例
+4. **动态重载**：支持运行时重新加载配置
+
+### 配置使用示例
+
+```python
+# 获取配置实例
+config = AgentConfig()
+
+# 访问配置项
+mode = config.orchestrator_mode
+parallel_enabled = config.parallel_enabled
+parallel_timeout = config.parallel_timeout
+
+# 重新加载配置
+config.reload()
+```
+
+**章节来源**
+- [llm_common.py:49-80](file://src/agent/llm_common.py#L49-L80)
+- [master_agent.py:28-40](file://src/agent/master_agent.py#L28-L40)
+
 ## 回调机制与实时监控
 
 ### 回调函数设计
@@ -396,6 +526,7 @@ OPENAI[OpenAI 1.0+]
 LANGCHAIN[LangChain 0.2+]
 SQLALCHEMY[SQLAlchemy 2.0+]
 THREADING[Threading]
+CONCURRENT[concurrent.futures]
 END
 subgraph "数据处理"
 PANDAS[Pandas 2.0+]
@@ -471,6 +602,12 @@ WEB_APP[React前端] --> API
 - **批量持久化**：定期批量写入数据库，减少I/O操作
 - **进度映射**：预设Agent执行进度，避免重复计算
 
+### 配置管理优化
+
+- **单例模式**：避免重复创建配置实例
+- **延迟加载**：仅在首次访问时加载配置
+- **动态重载**：支持运行时更新配置而无需重启
+
 ## 故障排除指南
 
 ### 常见问题及解决方案
@@ -515,6 +652,22 @@ WEB_APP[React前端] --> API
 2. 验证数据库连接配置
 3. 查看Agent执行器的日志输出
 
+#### 并行执行问题
+**症状**：并行执行失败或超时
+**原因**：线程池配置不当或资源不足
+**解决方案**：
+1. 检查`AGENT_PARALLEL`配置
+2. 调整`AGENT_PARALLEL_TIMEOUT`超时时间
+3. 监控系统资源使用情况
+
+#### 配置管理问题
+**症状**：配置不生效或更新失败
+**原因**：配置缓存或加载问题
+**解决方案**：
+1. 调用`config.reload()`重新加载配置
+2. 检查环境变量设置
+3. 验证`.env`文件格式
+
 **章节来源**
 - [master_agent.py:332-357](file://src/agent/master_agent.py#L332-L357)
 - [agent_executor.py:103-132](file://src/api/agent_executor.py#L103-L132)
@@ -522,14 +675,16 @@ WEB_APP[React前端] --> API
 
 ## 结论
 
-MasterAgent主控智能体通过其精心设计的双编排器架构和增强的回调机制，为AI投资分析系统提供了强大的协调能力和高可靠性。系统的核心优势包括：
+MasterAgent主控智能体通过其精心设计的双编排器架构和多项重大增强，为AI投资分析系统提供了强大的协调能力和高可靠性。系统的核心优势包括：
 
 1. **高可用性**：LangChain编排器不可用时自动降级到自研编排器
-2. **灵活性**：支持多种编排模式，可根据环境动态调整
-3. **可扩展性**：清晰的组件分离和标准化协议，便于功能扩展
-4. **性能优化**：多层次缓存和并行执行机制
-5. **实时监控**：强大的回调机制支持实时状态监控和中间结果展示
-6. **用户体验**：完整的前后端交互，提供流畅的分析体验
+2. **高性能并行执行**：通过ThreadPoolExecutor实现三个Agent的并行处理
+3. **统一配置管理**：AgentConfig类提供集中化的配置管理
+4. **实时监控能力**：完整的回调机制支持实时状态监控和中间结果展示
+5. **灵活的编排模式**：支持多种编排模式，可根据环境动态调整
+6. **可扩展性**：清晰的组件分离和标准化协议，便于功能扩展
+7. **性能优化**：多层次缓存和并行执行机制
+8. **用户体验**：完整的前后端交互，提供流畅的分析体验
 
 该系统为投资分析领域提供了一个完整的解决方案，既保证了功能的完整性，又确保了在各种环境下的稳定运行和良好的用户体验。
 
@@ -570,14 +725,32 @@ result = agent.execute_phase2(
 )
 ```
 
+#### 配置管理示例
+```python
+from agent.llm_common import AgentConfig
+
+# 获取配置实例
+config = AgentConfig()
+
+# 检查当前配置
+print(f"编排器模式: {config.orchestrator_mode}")
+print(f"并行执行: {config.parallel_enabled}")
+print(f"超时时间: {config.parallel_timeout}")
+
+# 重新加载配置
+config.reload()
+```
+
 ### 最佳实践
 
 1. **编排器选择**：生产环境推荐使用`auto`模式
-2. **缓存配置**：合理设置缓存TTL以平衡性能和准确性
-3. **错误监控**：关注`degraded`标志以及时发现系统问题
-4. **资源管理**：根据硬件条件调整并发参数
-5. **回调使用**：在需要实时监控的场景下使用回调机制
-6. **数据库配置**：确保数据库连接正常以支持实时监控功能
+2. **并行执行配置**：根据硬件条件调整并行参数
+3. **缓存配置**：合理设置缓存TTL以平衡性能和准确性
+4. **错误监控**：关注`degraded`标志以及时发现系统问题
+5. **资源管理**：根据硬件条件调整并发参数
+6. **回调使用**：在需要实时监控的场景下使用回调机制
+7. **配置管理**：利用AgentConfig统一管理所有配置
+8. **数据库配置**：确保数据库连接正常以支持实时监控功能
 
 ### 扩展指南
 
@@ -599,7 +772,14 @@ result = agent.execute_phase2(
 3. 更新数据库模型以支持新的监控维度
 4. 修改前端组件以展示新的监控信息
 
+#### 配置扩展
+1. 在AgentConfig类中添加新的配置项
+2. 设置合理的默认值
+3. 更新配置加载逻辑
+4. 提供配置重载机制
+
 **章节来源**
 - [test_master_agent.py:21-37](file://src/agent/test/test_master_agent.py#L21-L37)
 - [master_agent.py:322-414](file://src/agent/master_agent.py#L322-L414)
 - [agent_executor.py:103-132](file://src/api/agent_executor.py#L103-L132)
+- [llm_common.py:49-80](file://src/agent/llm_common.py#L49-L80)
