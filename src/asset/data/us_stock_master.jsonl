@@ -1,0 +1,8 @@
+{"asset_id": "us_stock:AAPL", "asset_type": "us_stock", "symbol": "AAPL", "name": "Apple Inc.", "market": "US", "exchange": "NASDAQ", "aliases": ["苹果"], "currency": "USD"}
+{"asset_id": "us_stock:TSLA", "asset_type": "us_stock", "symbol": "TSLA", "name": "Tesla Inc.", "market": "US", "exchange": "NASDAQ", "aliases": ["特斯拉"], "currency": "USD"}
+{"asset_id": "us_stock:NVDA", "asset_type": "us_stock", "symbol": "NVDA", "name": "NVIDIA Corporation", "market": "US", "exchange": "NASDAQ", "aliases": ["英伟达"], "currency": "USD"}
+{"asset_id": "us_stock:MSFT", "asset_type": "us_stock", "symbol": "MSFT", "name": "Microsoft Corporation", "market": "US", "exchange": "NASDAQ", "aliases": ["微软"], "currency": "USD"}
+{"asset_id": "us_stock:GOOGL", "asset_type": "us_stock", "symbol": "GOOGL", "name": "Alphabet Inc.", "market": "US", "exchange": "NASDAQ", "aliases": ["谷歌"], "currency": "USD"}
+{"asset_id": "us_stock:AMZN", "asset_type": "us_stock", "symbol": "AMZN", "name": "Amazon.com Inc.", "market": "US", "exchange": "NASDAQ", "aliases": ["亚马逊"], "currency": "USD"}
+{"asset_id": "us_stock:META", "asset_type": "us_stock", "symbol": "META", "name": "Meta Platforms Inc.", "market": "US", "exchange": "NASDAQ", "aliases": ["脸书"], "currency": "USD"}
+{"asset_id": "us_stock:NFLX", "asset_type": "us_stock", "symbol": "NFLX", "name": "Netflix Inc.", "market": "US", "exchange": "NASDAQ", "aliases": ["奈飞"], "currency": "USD"}

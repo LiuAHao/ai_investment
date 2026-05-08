@@ -4,6 +4,14 @@
 RSS 新闻解析器测试程序
 """
 
+import os
+import sys
+
+CURRENT_DIR = os.path.abspath(os.path.dirname(__file__))
+NEWS_DIR = os.path.abspath(os.path.join(CURRENT_DIR, ".."))
+if NEWS_DIR not in sys.path:
+    sys.path.insert(0, NEWS_DIR)
+
 from news_api import get_news_titles
 
 

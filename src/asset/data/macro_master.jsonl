@@ -1,0 +1,5 @@
+{"asset_id": "macro:CN_CPI", "asset_type": "macro", "symbol": "CN_CPI", "name": "中国CPI", "market": "CN", "exchange": "", "aliases": ["居民消费价格指数"], "currency": "CNY", "release_frequency": "月度"}
+{"asset_id": "macro:CN_PMI", "asset_type": "macro", "symbol": "CN_PMI", "name": "中国PMI", "market": "CN", "exchange": "", "aliases": ["采购经理指数"], "currency": "CNY", "release_frequency": "月度"}
+{"asset_id": "macro:CN_GDP", "asset_type": "macro", "symbol": "CN_GDP", "name": "中国GDP", "market": "CN", "exchange": "", "aliases": ["国内生产总值"], "currency": "CNY", "release_frequency": "季度"}
+{"asset_id": "macro:US_CPI", "asset_type": "macro", "symbol": "US_CPI", "name": "美国CPI", "market": "US", "exchange": "", "aliases": [], "currency": "USD", "release_frequency": "月度"}
+{"asset_id": "macro:US_FED_RATE", "asset_type": "macro", "symbol": "US_FED_RATE", "name": "美联储利率", "market": "US", "exchange": "", "aliases": ["联邦基金利率"], "currency": "USD", "release_frequency": "不定期"}

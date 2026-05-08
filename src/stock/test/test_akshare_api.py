@@ -19,7 +19,7 @@ import time
 import datetime
 
 
-def test_api(func, func_name, *args, **kwargs):
+def run_api_check(func, func_name, *args, **kwargs):
     """
     测试API函数调用
     
@@ -117,7 +117,7 @@ def main():
     print("\n【股票市场总貌接口测试】")
     try:
         last_month = get_last_month_yyyymm()
-        if test_api(ak.stock_szse_sector_summary, "stock_szse_sector_summary", symbol="当月", date=last_month):
+        if run_api_check(ak.stock_szse_sector_summary, "stock_szse_sector_summary", symbol="当月", date=last_month):
             success_count += 1
         else:
             fail_count += 1
@@ -128,7 +128,7 @@ def main():
     # 2. 历史行情数据接口测试
     print("\n【历史行情数据接口测试】")
     try:
-        if test_api(ak.stock_zh_a_daily, "stock_zh_a_daily", symbol=symbol_sina, adjust=""):
+        if run_api_check(ak.stock_zh_a_daily, "stock_zh_a_daily", symbol=symbol_sina, adjust=""):
             success_count += 1
         else:
             fail_count += 1
@@ -137,7 +137,7 @@ def main():
         fail_count += 1
 
     try:
-        if test_api(ak.stock_zh_a_hist_tx, "stock_zh_a_hist_tx", symbol=symbol_sina, adjust="", 
+        if run_api_check(ak.stock_zh_a_hist_tx, "stock_zh_a_hist_tx", symbol=symbol_sina, adjust="", 
                    start_date="20230101", end_date="20231231"):
             success_count += 1
         else:
@@ -149,9 +149,9 @@ def main():
     # 3. 分时数据接口测试
     print("\n【分时数据接口测试】")
     try:
-        if test_api(ak.stock_zh_a_hist_min_em, "stock_zh_a_hist_min_em", symbol=symbol_em, period="5", adjust=""):
+        if run_api_check(ak.stock_zh_a_hist_min_em, "stock_zh_a_hist_min_em", symbol=symbol_em, period="5", adjust=""):
             success_count += 1
-        elif test_api(ak.stock_zh_a_hist_min_em, "stock_zh_a_hist_min_em", symbol=symbol_em_alt, period="5", adjust=""):
+        elif run_api_check(ak.stock_zh_a_hist_min_em, "stock_zh_a_hist_min_em", symbol=symbol_em_alt, period="5", adjust=""):
             success_count += 1
         else:
             fail_count += 1
@@ -161,18 +161,18 @@ def main():
 
     # 4. 盘前数据接口测试
     print("\n【盘前数据接口测试】")
-    if test_api(ak.stock_zh_a_hist_pre_min_em, "stock_zh_a_hist_pre_min_em", symbol=symbol_em):
+    if run_api_check(ak.stock_zh_a_hist_pre_min_em, "stock_zh_a_hist_pre_min_em", symbol=symbol_em):
         success_count += 1
-    elif test_api(ak.stock_zh_a_hist_pre_min_em, "stock_zh_a_hist_pre_min_em", symbol=symbol_em_alt):
+    elif run_api_check(ak.stock_zh_a_hist_pre_min_em, "stock_zh_a_hist_pre_min_em", symbol=symbol_em_alt):
         success_count += 1
     else:
         fail_count += 1
 
     # 5. 日内分时数据接口测试
     print("\n【日内分时数据接口测试】")
-    if test_api(ak.stock_intraday_em, "stock_intraday_em", symbol=symbol_em_alt):
+    if run_api_check(ak.stock_intraday_em, "stock_intraday_em", symbol=symbol_em_alt):
         success_count += 1
-    elif test_api(ak.stock_intraday_em, "stock_intraday_em", symbol=symbol_em):
+    elif run_api_check(ak.stock_intraday_em, "stock_intraday_em", symbol=symbol_em):
         success_count += 1
     else:
         fail_count += 1
@@ -182,7 +182,7 @@ def main():
         last_error = None
         for day in get_recent_dates(10):
             try:
-                if test_api(ak.stock_intraday_sina, "stock_intraday_sina", symbol=symbol_sina, date=day):
+                if run_api_check(ak.stock_intraday_sina, "stock_intraday_sina", symbol=symbol_sina, date=day):
                     success_count += 1
                     intraday_success = True
                     break
@@ -199,14 +199,14 @@ def main():
 
     # 6. 个股信息查询接口测试
     print("\n【个股信息查询接口测试】")
-    if test_api(ak.stock_individual_info_em, "stock_individual_info_em", symbol=symbol_em):
+    if run_api_check(ak.stock_individual_info_em, "stock_individual_info_em", symbol=symbol_em):
         success_count += 1
     else:
         fail_count += 1
 
     token = os.getenv("XUEQIU_TOKEN") or os.getenv("XQ_AKSHARE_TOKEN") or os.getenv("XQ_TOKEN")
     if token:
-        if test_api(ak.stock_individual_basic_info_xq, "stock_individual_basic_info_xq", symbol=symbol_xq, token=token):
+        if run_api_check(ak.stock_individual_basic_info_xq, "stock_individual_basic_info_xq", symbol=symbol_xq, token=token):
             success_count += 1
         else:
             fail_count += 1
@@ -216,9 +216,9 @@ def main():
 
     # 7. 行情报价接口测试
     print("\n【行情报价接口测试】")
-    if test_api(ak.stock_bid_ask_em, "stock_bid_ask_em", symbol=symbol_em):
+    if run_api_check(ak.stock_bid_ask_em, "stock_bid_ask_em", symbol=symbol_em):
         success_count += 1
-    elif test_api(ak.stock_bid_ask_em, "stock_bid_ask_em", symbol=symbol_em_alt):
+    elif run_api_check(ak.stock_bid_ask_em, "stock_bid_ask_em", symbol=symbol_em_alt):
         success_count += 1
     else:
         fail_count += 1

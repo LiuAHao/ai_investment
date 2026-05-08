@@ -1,0 +1,6 @@
+{"asset_id": "industry:新能源车", "asset_type": "industry", "symbol": "新能源车", "name": "新能源汽车行业", "market": "CN", "exchange": "", "aliases": ["新能源汽车", "电动车"], "currency": "CNY"}
+{"asset_id": "industry:半导体", "asset_type": "industry", "symbol": "半导体", "name": "半导体行业", "market": "CN", "exchange": "", "aliases": ["芯片"], "currency": "CNY"}
+{"asset_id": "industry:人工智能", "asset_type": "industry", "symbol": "人工智能", "name": "人工智能行业", "market": "CN", "exchange": "", "aliases": ["AI"], "currency": "CNY"}
+{"asset_id": "industry:医药", "asset_type": "industry", "symbol": "医药", "name": "医药行业", "market": "CN", "exchange": "", "aliases": ["生物医药", "创新药"], "currency": "CNY"}
+{"asset_id": "industry:消费", "asset_type": "industry", "symbol": "消费", "name": "消费行业", "market": "CN", "exchange": "", "aliases": ["大消费"], "currency": "CNY"}
+{"asset_id": "industry:房地产", "asset_type": "industry", "symbol": "房地产", "name": "房地产行业", "market": "CN", "exchange": "", "aliases": ["地产"], "currency": "CNY"}

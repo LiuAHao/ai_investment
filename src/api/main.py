@@ -19,14 +19,41 @@ if CURRENT_DIR in sys.path:
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
+
+def _load_env_file() -> None:
+    """加载项目根目录 .env，避免 V2 开关只在 shell 环境中生效"""
+    env_path = os.path.abspath(os.path.join(PROJECT_ROOT, "..", ".env"))
+    if not os.path.isfile(env_path):
+        return
+    try:
+        with open(env_path, "r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                if key and key not in os.environ:
+                    os.environ[key] = value
+    except Exception:
+        pass
+
+
+_load_env_file()
+
 from models import init_db, get_db
 from models.database import User
-from api.auth import auth_bp, hash_password
+from api.auth import auth_bp, hash_password, verify_password
 from api.agent import agent_bp
 from api.stock import stock_bp
 from api.news import news_bp
 from api.chat import chat_bp
 from api.auth import get_current_user
+
+V2_ENABLED = os.getenv("AGENT_V2_ENABLED", "false").lower() == "true"
+if V2_ENABLED:
+    from api.agent_v2 import agent_v2_bp
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
@@ -54,6 +81,10 @@ def create_app():
     app.register_blueprint(stock_bp, url_prefix="/api/stock")
     app.register_blueprint(news_bp, url_prefix="/api/news")
     app.register_blueprint(chat_bp, url_prefix="/api/chat")
+
+    if V2_ENABLED:
+        app.register_blueprint(agent_v2_bp, url_prefix="/api/agent/v2")
+        logger.info("V2 Agent API 已启用")
 
     @app.route("/")
     def index():
@@ -223,7 +254,7 @@ def create_app():
                 if not user_in_db:
                     return jsonify({"error": "用户不存在"}), 404
 
-                if user_in_db.password_hash != hash_password(current_password):
+                if not verify_password(current_password, user_in_db.password_hash):
                     return jsonify({"error": "原密码错误"}), 400
 
                 user_in_db.password_hash = hash_password(new_password)
