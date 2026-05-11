@@ -8,7 +8,7 @@
 
 import pytest
 import asyncio
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, expect
 
 @pytest.fixture
 def browser():
