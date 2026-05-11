@@ -159,7 +159,7 @@ def get_status(task_id: str):
 
     if task.status == "completed" and task.result:
         response["result"] = task.result
-    elif task.status == "failed":
+    elif task.status in ("failed", "timeout"):
         response["error"] = task.error
 
     return jsonify(response), 200

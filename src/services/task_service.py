@@ -17,6 +17,15 @@ from typing import Any, Callable, Dict, Optional
 logger = logging.getLogger(__name__)
 
 
+def _emit_task_event(task_id: str, event_type: str, data: Dict[str, Any] = None) -> None:
+    """向 SSE 事件总线发送任务事件，失败时不影响任务执行"""
+    try:
+        from api.events import emit_event
+        emit_event(task_id, event_type, data or {})
+    except Exception:
+        logger.debug("任务事件发送失败: %s", event_type, exc_info=True)
+
+
 class TaskInfo:
     """任务信息"""
 
@@ -72,6 +81,10 @@ class TaskService:
                 task.status = "processing"
                 task.timeout_seconds = timeout_seconds
                 started_at = time.time()
+                _emit_task_event(task_id, "task_started", {
+                    "task_id": task.task_id,
+                    "session_id": task.session_id,
+                })
                 try:
                     pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="v2_task_inner")
                     future = pool.submit(func, *args, **kwargs)
@@ -84,19 +97,40 @@ class TaskService:
                         task.status = "timeout"
                         task.error = f"任务执行超时: {timeout_seconds}s"
                         task.completed_at = time.time()
+                        _emit_task_event(task_id, "task_failed", {
+                            "task_id": task.task_id,
+                            "session_id": task.session_id,
+                            "error": task.error,
+                        })
                         return
                     task.status = "completed"
                     task.result = result
+                    task.trace = result.get("trace", []) if isinstance(result, dict) else []
                     task.progress = 100
                     task.completed_at = time.time()
+                    _emit_task_event(task_id, "task_completed", {
+                        "task_id": task.task_id,
+                        "session_id": task.session_id,
+                        "result": result,
+                    })
                 except TimeoutError:
                     task.status = "timeout"
                     task.error = f"任务执行超时: {timeout_seconds}s"
                     task.completed_at = time.time()
+                    _emit_task_event(task_id, "task_failed", {
+                        "task_id": task.task_id,
+                        "session_id": task.session_id,
+                        "error": task.error,
+                    })
                 except Exception as e:
                     task.status = "failed"
                     task.error = str(e)
                     task.completed_at = time.time()
+                    _emit_task_event(task_id, "task_failed", {
+                        "task_id": task.task_id,
+                        "session_id": task.session_id,
+                        "error": task.error,
+                    })
 
         cls._executor.submit(wrapper)
 
@@ -108,6 +142,10 @@ class TaskService:
             task.progress = progress
             if node:
                 task.current_node = node
+                _emit_task_event(task_id, "node_completed", {
+                    "node": node,
+                    "progress": progress,
+                })
 
     @classmethod
     def cleanup_expired(cls, max_age: int = 3600) -> None:

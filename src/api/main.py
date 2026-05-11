@@ -49,11 +49,14 @@ from api.agent import agent_bp
 from api.stock import stock_bp
 from api.news import news_bp
 from api.chat import chat_bp
+from api.feedback import feedback_bp
+from api.eval_api import eval_bp
 from api.auth import get_current_user
 
 V2_ENABLED = os.getenv("AGENT_V2_ENABLED", "false").lower() == "true"
 if V2_ENABLED:
     from api.agent_v2 import agent_v2_bp
+    from api.events import events_bp
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
@@ -81,9 +84,12 @@ def create_app():
     app.register_blueprint(stock_bp, url_prefix="/api/stock")
     app.register_blueprint(news_bp, url_prefix="/api/news")
     app.register_blueprint(chat_bp, url_prefix="/api/chat")
+    app.register_blueprint(feedback_bp, url_prefix="/api")
+    app.register_blueprint(eval_bp, url_prefix="/api/eval")
 
     if V2_ENABLED:
         app.register_blueprint(agent_v2_bp, url_prefix="/api/agent/v2")
+        app.register_blueprint(events_bp, url_prefix="/api/agent/v2")
         logger.info("V2 Agent API 已启用")
 
     @app.route("/")

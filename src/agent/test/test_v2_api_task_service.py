@@ -34,3 +34,44 @@ def test_task_service_records_user_id_for_authorization():
     assert task.task_id == task_id
     assert task.session_id == "session-test"
     assert task.user_id == 123
+
+
+def test_task_service_emits_completion_event(monkeypatch):
+    """任务完成时应向 SSE 总线发送完成事件"""
+    emitted = []
+
+    def fake_emit_event(task_id, event_type, data=None):
+        emitted.append((task_id, event_type, data or {}))
+
+    import api.events
+
+    monkeypatch.setattr(api.events, "emit_event", fake_emit_event)
+
+    task_id = TaskService.create_task(session_id="session-event", user_id=123)
+    TaskService.submit_task(task_id, lambda: {"trace": [], "final_answer": "ok"})
+
+    import time
+    deadline = time.time() + 2
+    while time.time() < deadline:
+        task = TaskService.get_task(task_id)
+        if task and task.status == "completed":
+            break
+        time.sleep(0.01)
+
+    event_types = [event_type for _, event_type, _ in emitted]
+    assert "task_started" in event_types
+    assert "task_completed" in event_types
+
+
+def test_event_bus_publish_subscribe_roundtrip():
+    """事件总线应能按 task_id 发布和订阅消息"""
+    from api.events import EventBus
+
+    bus = EventBus()
+    queue = bus.subscribe("task-1")
+    bus.publish("task-1", {"type": "task_completed", "data": {"ok": True}})
+
+    event = queue.get(timeout=1)
+
+    assert event["type"] == "task_completed"
+    assert event["data"]["ok"] is True

@@ -2,7 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 import { getMockResponse } from './mockService';
 
 export const generateGeminiResponse = async (prompt) => {
-  const apiKey = process.env.API_KEY;
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
   
   // If no API key is provided, return mock response
   if (!apiKey || apiKey.trim() === "") {

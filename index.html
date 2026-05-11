@@ -1,0 +1,1116 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><script data-od-sandbox-shim>(function(){
+  function makeStore(){
+    var data = {};
+    var api = {
+      getItem: function(k){ return Object.prototype.hasOwnProperty.call(data, k) ? data[k] : null; },
+      setItem: function(k, v){ data[k] = String(v); },
+      removeItem: function(k){ delete data[k]; },
+      clear: function(){ data = {}; },
+      key: function(i){ return Object.keys(data)[i] || null; }
+    };
+    Object.defineProperty(api, 'length', { get: function(){ return Object.keys(data).length; } });
+    return api;
+  }
+  function tryShim(name){
+    var works = false;
+    try { works = !!window[name] && typeof window[name].getItem === 'function'; void window[name].length; }
+    catch (_) { works = false; }
+    if (works) return;
+    try { Object.defineProperty(window, name, { configurable: true, value: makeStore() }); }
+    catch (_) { try { window[name] = makeStore(); } catch (__) {} }
+  }
+  tryShim('localStorage');
+  tryShim('sessionStorage');
+})();</script>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>AI 投资研究 Agent</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#020617;--bg2:#0f172a;--card:#111827;--card2:#1e293b;
+  --border:rgba(255,255,255,0.08);--border2:rgba(255,255,255,0.12);
+  --red:#dc2626;--red-bright:#ef4444;--orange:#f97316;
+  --green:#22c55e;--yellow:#f59e0b;
+  --text:#f8fafc;--text2:#94a3b8;--text3:#64748b;
+  --font:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif;
+  --mono:ui-monospace,'JetBrains Mono','IBM Plex Mono',Menlo,monospace;
+  --radius:8px;--radius-lg:12px;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font);font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased}
+#root{min-height:100%;display:flex;flex-direction:column}
+a{color:var(--red);text-decoration:none}
+button{font-family:inherit;cursor:pointer;border:none;font-size:14px;background:none;color:inherit}
+input,textarea,select{font-family:inherit;font-size:14px;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;outline:none;transition:border-color .2s}
+input:focus,textarea:focus,select:focus{border-color:var(--red)}
+textarea{resize:vertical;min-height:80px}
+select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2394a3b8'%3E%3Cpath d='M2 4l4 4 4-4'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:32px}
+::-webkit-scrollbar{width:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+@keyframes breathe{0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,0.4)}50%{box-shadow:0 0 12px 4px rgba(220,38,38,0.2)}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes logSlide{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:translateX(0)}}
+@keyframes progressPulse{0%{opacity:.7}50%{opacity:1}100%{opacity:.7}}
+@keyframes phaseActivate{from{border-color:var(--border);box-shadow:none}to{border-color:rgba(220,38,38,0.3);box-shadow:0 0 20px rgba(220,38,38,0.06)}}
+.fade-in{animation:fadeIn .4s ease both}
+button{transition:all .2s ease}
+textarea::placeholder,input::placeholder{color:var(--text3)}
+
+.header{background:rgba(2,6,23,0.85);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100;height:56px}
+.header-inner{max-width:1200px;margin:0 auto;padding:0 24px;height:100%;display:flex;align-items:center;justify-content:space-between}
+.logo{display:flex;align-items:center;gap:10px;cursor:pointer}
+.logo-text{font-size:15px;font-weight:600;letter-spacing:-0.01em}
+.nav{display:flex;gap:4px}
+.nav-btn{padding:6px 14px;border-radius:6px;font-size:13px;font-weight:500}
+.nav-btn.active{color:var(--text);background:rgba(220,38,38,0.12)}
+.nav-btn:not(.active){color:var(--text3)}
+.header-right{display:flex;gap:8px;align-items:center}
+.login-btn{padding:6px 16px;border-radius:6px;font-size:13px;color:var(--text2);border:1px solid var(--border)}
+.cta-btn{padding:6px 16px;border-radius:6px;font-size:13px;font-weight:600;background:linear-gradient(135deg,var(--red),var(--orange));color:#fff}
+
+.page{flex:1;max-width:1200px;margin:0 auto;padding:32px 24px 80px;width:100%}
+.page-title{font-size:24px;font-weight:700;margin-bottom:32px;letter-spacing:-0.02em}
+
+.hero{text-align:center;padding:80px 0 64px}
+.hero-badge{display:inline-block;font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--red);background:rgba(220,38,38,0.1);border:1px solid rgba(220,38,38,0.2);border-radius:20px;padding:4px 14px;margin-bottom:24px}
+.hero-title{font-size:clamp(36px,6vw,56px);font-weight:800;letter-spacing:-0.03em;line-height:1.1;margin-bottom:16px;background:linear-gradient(135deg,var(--text),var(--text2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero-sub{font-size:18px;color:var(--text2);max-width:500px;margin:0 auto 36px;line-height:1.6}
+.hero-actions{display:flex;gap:12px;justify-content:center}
+.hero-cta{padding:12px 32px;border-radius:8px;font-size:15px;font-weight:600;background:linear-gradient(135deg,var(--red),var(--orange));color:#fff}
+.hero-secondary{padding:12px 32px;border-radius:8px;font-size:15px;background:var(--card);color:var(--text2);border:1px solid var(--border)}
+
+.features{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px;margin-bottom:64px}
+.feature-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:28px 24px}
+.feature-icon{font-size:28px;color:var(--red);margin-bottom:16px}
+.feature-title{font-size:16px;font-weight:600;margin-bottom:8px}
+.feature-desc{font-size:13px;color:var(--text2);line-height:1.6}
+
+.section-title{font-size:20px;font-weight:700;margin-bottom:24px;letter-spacing:-0.02em}
+.agent-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:48px}
+.agent-chip{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;display:flex;flex-direction:column;gap:4px}
+.agent-num{font-size:11px;font-family:var(--mono);color:var(--red);font-weight:600}
+.agent-name{font-size:14px;font-weight:600}
+.agent-desc-sm{font-size:12px;color:var(--text3)}
+
+.login-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:40px 36px;width:100%;max-width:400px;margin:0 auto}
+.login-title{font-size:24px;font-weight:700;margin-bottom:8px;text-align:center}
+.login-sub{font-size:13px;color:var(--text3);text-align:center;margin-bottom:32px}
+.form-group{margin-bottom:20px}
+.form-label{display:block;font-size:13px;font-weight:500;color:var(--text2);margin-bottom:6px}
+.form-input{width:100%}
+.form-error{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);border-radius:var(--radius);padding:10px 14px;color:var(--red-bright);font-size:13px;margin-bottom:16px}
+.form-success{background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.2);border-radius:var(--radius);padding:10px 14px;color:var(--green);font-size:13px;margin-bottom:16px}
+.login-submit{width:100%;padding:12px;border-radius:var(--radius);font-size:15px;font-weight:600;background:linear-gradient(135deg,var(--red),var(--orange));color:#fff;margin-top:8px}
+.login-switch{text-align:center;margin-top:20px;font-size:13px;color:var(--text3)}
+.link-btn{background:none;color:var(--red);font-size:13px;font-weight:500;cursor:pointer;border:none}
+
+.settings-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:24px}
+.settings-section{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px}
+.settings-section-title{font-size:15px;font-weight:600;margin-bottom:20px;padding-bottom:12px;border-bottom:1px solid var(--border)}
+.hint{font-size:12px;color:var(--text3);margin-top:4px;display:block}
+.settings-actions{margin-top:32px;display:flex;align-items:center}
+.toggle{width:44px;height:24px;border-radius:12px;position:relative;transition:background .2s;background:var(--card2);border:1px solid var(--border);cursor:pointer;flex-shrink:0}
+.toggle.on{background:var(--red)}
+.toggle-knob{width:18px;height:18px;border-radius:9px;background:#fff;position:absolute;top:2px;left:2px;transition:left .2s}
+.toggle.on .toggle-knob{left:22px}
+
+.empty-state{text-align:center;padding:80px 0}
+.history-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px}
+.history-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;cursor:pointer}
+.history-card:hover{border-color:var(--border2)}
+.history-card-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}
+.history-title{font-size:16px;font-weight:600}
+.history-date{font-size:12px;color:var(--text3);font-family:var(--mono)}
+.history-meta{display:flex;gap:8px;font-size:12px;color:var(--text3);margin-bottom:12px}
+.history-query{font-size:13px;color:var(--text2);margin-bottom:12px;line-height:1.5}
+.history-tags{display:flex;gap:6px}
+.tag{font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(220,38,38,0.1);color:var(--red);font-weight:500}
+
+.research-hero{max-width:720px;margin:0 auto;padding:48px 0;text-align:center}
+.research-hero-title{font-size:clamp(28px,4vw,40px);font-weight:700;letter-spacing:-0.02em;margin-bottom:32px}
+.big-input{width:100%;min-height:120px;padding:16px 20px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius-lg);color:var(--text);font-size:16px;line-height:1.6;resize:vertical}
+.options-bar{display:flex;flex-wrap:wrap;gap:20px;justify-content:center;margin-bottom:24px;margin-top:20px}
+.option-group{display:flex;align-items:center;gap:8px}
+.option-label{font-size:13px;color:var(--text3)}
+.opt-select{padding:8px 32px 8px 12px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:13px}
+.hero-btn-row{margin-bottom:32px;text-align:center}
+.analyze-btn{padding:14px 48px;border-radius:8px;font-size:16px;font-weight:700;background:linear-gradient(135deg,var(--red),var(--orange));color:#fff;letter-spacing:-0.01em}
+.recommend-section{margin-bottom:8px;text-align:center}
+.recommend-label{font-size:12px;color:var(--text3);display:block;margin-bottom:10px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+.chip{padding:6px 14px;border-radius:6px;font-size:13px;background:rgba(220,38,38,0.08);color:var(--text2);border:1px solid rgba(220,38,38,0.15);cursor:pointer}
+.chip:hover{background:rgba(220,38,38,0.15)}
+.load-btn{padding:8px 20px;border-radius:6px;font-size:13px;background:var(--card);color:var(--text2);border:1px solid var(--border);cursor:pointer}
+
+/* ── FLOW CANVAS ── */
+.flow-canvas{margin-bottom:24px}
+.flow-canvas-header{display:flex;align-items:center;gap:12px;margin-bottom:20px}
+.flow-canvas-badge{font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--red);background:rgba(220,38,38,0.1);border-radius:4px;padding:2px 10px}
+.flow-canvas-query{font-size:20px;font-weight:700;letter-spacing:-0.01em;line-height:1.4}
+.flow-canvas-time{font-size:12px;color:var(--text3);font-family:var(--mono)}
+
+/* Phase blocks */
+.phase{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px 24px;margin-bottom:16px;transition:all .4s ease}
+.phase.active{border-color:rgba(220,38,38,0.3);box-shadow:0 0 20px rgba(220,38,38,0.06)}
+.phase.completed{border-color:var(--border)}
+.phase-header{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.phase-num{font-size:11px;font-family:var(--mono);font-weight:700;color:var(--red);background:rgba(220,38,38,0.1);width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.phase.active .phase-num{background:var(--red);color:#fff}
+.phase-title{font-size:14px;font-weight:600;flex:1}
+.phase-status{font-size:12px;font-weight:500;padding:2px 8px;border-radius:4px}
+.phase-status.running{color:var(--red);background:rgba(220,38,38,0.1)}
+.phase-status.completed{color:var(--green);background:rgba(34,197,94,0.1)}
+.phase-status.pending{color:var(--text3);background:rgba(100,116,139,0.1)}
+
+/* Serial agent row */
+.serial-agents{display:flex;gap:12px;flex-wrap:wrap}
+.serial-agent{flex:1;min-width:180px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;position:relative;transition:all .3s ease}
+.serial-agent.running{border-color:rgba(220,38,38,0.3)}
+.serial-agent.completed{border-color:rgba(34,197,94,0.15)}
+.serial-agent-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.serial-agent-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.serial-agent-dot.pending{background:var(--card2);border:1px solid var(--border)}
+.serial-agent-dot.running{background:var(--red);animation:breathe 1.5s ease-in-out infinite}
+.serial-agent-dot.completed{background:var(--green)}
+.serial-agent-name{font-size:13px;font-weight:600}
+.serial-agent-status{font-size:11px;margin-left:auto}
+.serial-agent-status.running{color:var(--red)}
+.serial-agent-status.completed{color:var(--green)}
+.serial-agent-status.pending{color:var(--text3)}
+.serial-agent-duration{font-size:11px;font-family:var(--mono);color:var(--text3);margin-left:4px}
+.serial-arrow{display:flex;align-items:center;color:var(--text3);font-size:16px;flex-shrink:0;align-self:center}
+.agent-logs{margin-top:8px;max-height:120px;overflow-y:auto}
+.agent-log-line{font-size:11px;font-family:var(--mono);color:var(--text3);padding:2px 0;animation:logSlide .3s ease both;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.agent-log-line::before{content:'› ';color:var(--red);opacity:.5}
+.agent-log-line.done{color:var(--green)}
+
+/* Parallel tool cards */
+.parallel-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.tool-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:16px;transition:all .3s ease}
+.tool-card.running{border-color:rgba(220,38,38,0.25);animation:phaseActivate .6s ease both}
+.tool-card.completed{border-color:rgba(34,197,94,0.15)}
+.tool-card-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.tool-card-icon{font-size:16px}
+.tool-card-name{font-size:13px;font-weight:600;font-family:var(--mono);flex:1}
+.tool-card-status{font-size:11px;font-weight:500}
+.tool-card-status.running{color:var(--red)}
+.tool-card-status.completed{color:var(--green)}
+.tool-card-status.pending{color:var(--text3)}
+.tool-card-desc{font-size:12px;color:var(--text3);margin-bottom:10px}
+.tool-card-progress{height:3px;background:var(--card);border-radius:2px;overflow:hidden;margin-bottom:10px}
+.tool-card-progress-fill{height:100%;border-radius:2px;transition:width .3s ease;background:linear-gradient(90deg,var(--red),var(--orange))}
+.tool-card-progress-fill.done{background:var(--green)}
+.tool-card-logs{max-height:100px;overflow-y:auto}
+.tool-card-log{font-size:11px;font-family:var(--mono);color:var(--text3);padding:1px 0;animation:logSlide .25s ease both;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tool-card-log::before{content:'› ';opacity:.4}
+.tool-card-log.done{color:var(--green)}
+.tool-card-result{font-size:12px;color:var(--text2);margin-top:8px;padding:8px 10px;background:var(--card);border-radius:6px;line-height:1.5;border-left:2px solid var(--green)}
+
+/* Context block */
+.context-block{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:14px 18px;margin-bottom:16px}
+.context-row{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:4px}
+.context-label{font-size:11px;font-weight:600;color:var(--red);text-transform:uppercase;letter-spacing:0.06em}
+.context-value{font-size:13px;color:var(--text2)}
+
+.expand-btn{font-size:13px;color:var(--text3);background:transparent;padding:6px 0;margin-bottom:16px;border-bottom:1px dashed var(--border);display:block;cursor:pointer}
+
+/* Details panel */
+.details{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);margin-bottom:20px;overflow:hidden}
+.tab-bar{display:flex;border-bottom:1px solid var(--border);padding:0 8px}
+.tab{padding:10px 16px;font-size:13px;font-weight:500;background:transparent;cursor:pointer;border:none;border-bottom:2px solid transparent}
+.tab.active{background:var(--card2);color:var(--text);border-bottom-color:var(--red)}
+.tab:not(.active){color:var(--text3)}
+.tab-count{margin-left:6px;font-size:11px;background:var(--card);padding:1px 6px;border-radius:4px;color:var(--text3)}
+.tab-content{padding:16px}
+
+.evidence-item{padding:12px 0;border-bottom:1px solid var(--border)}
+.evidence-item:last-child{border-bottom:none}
+.evidence-header{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.evidence-type{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--red)}
+.evidence-source{font-size:12px;color:var(--text3);font-family:var(--mono)}
+.evidence-conf{font-size:12px;font-weight:600}
+.evidence-summary{font-size:13px;color:var(--text2);line-height:1.5;margin-bottom:6px}
+.evidence-meta{display:flex;gap:16px;font-size:12px;color:var(--text3)}
+
+.validation-block{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:12px}
+.validation-header{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.validation-title{font-size:14px;font-weight:600}
+.validation-score{font-size:13px;font-family:var(--mono);color:var(--text3)}
+.validation-issue{font-size:13px;color:var(--yellow);margin-top:6px;padding-left:8px}
+.validation-missing{font-size:13px;color:var(--text3);margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
+.compliance-checks{display:flex;flex-direction:column;gap:6px}
+.check-item{font-size:13px;color:var(--green)}
+
+.report{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:28px;margin-bottom:20px}
+.report-title{font-size:18px;font-weight:700;margin-bottom:24px;letter-spacing:-0.01em}
+.report-section{margin-bottom:24px}
+.report-section-title{font-size:14px;font-weight:600;color:var(--text2);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.04em}
+.report-text{font-size:15px;color:var(--text);line-height:1.7}
+.key-points{padding-left:20px}
+.key-point{font-size:14px;color:var(--text);line-height:1.7;margin-bottom:8px}
+.scenario-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.scenario-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:16px}
+.scenario-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.scenario-name{font-size:13px;font-weight:600}
+.scenario-prob{font-size:14px;font-family:var(--mono);font-weight:700;color:var(--text)}
+.prob-bar{height:4px;background:var(--card);border-radius:2px;overflow:hidden;margin-bottom:10px}
+.prob-fill{height:100%;border-radius:2px;transition:width .6s ease}
+.scenario-text{font-size:13px;color:var(--text2);line-height:1.5}
+.risk-list{list-style:none;padding:0}
+.risk-item{font-size:14px;color:var(--text);line-height:1.7;padding-left:16px;position:relative;margin-bottom:6px}
+.risk-item::before{content:'';position:absolute;left:0;top:10px;width:6px;height:6px;border-radius:3px;background:var(--text3)}
+.compliance-banner{display:flex;gap:10px;padding:16px;background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.15);border-radius:var(--radius);margin-top:24px}
+.compliance-icon{color:var(--yellow);font-size:16px;flex-shrink:0}
+.compliance-text{font-size:12px;color:var(--text3);line-height:1.6}
+
+.follow-up-section{margin-top:24px;padding-top:24px;border-top:1px solid var(--border)}
+.follow-up-context{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:16px}
+.follow-up-row{display:flex;gap:12px;align-items:flex-start}
+.follow-up-input{flex:1;min-height:60px;padding:12px 16px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:14px;resize:vertical}
+.follow-up-btn{padding:12px 24px;border-radius:var(--radius);font-size:14px;font-weight:600;background:linear-gradient(135deg,var(--red),var(--orange));color:#fff;white-space:nowrap;height:44px}
+.follow-up-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+
+.login-page{display:flex;justify-content:center;align-items:center;min-height:calc(100vh - 64px)}
+
+/* Turn collapse */
+.turn-collapsed{background:var(--card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px 20px;margin-bottom:12px;cursor:pointer;display:flex;align-items:center;gap:16px}
+.turn-collapsed:hover{border-color:var(--border2)}
+.turn-collapsed-title{font-size:14px;font-weight:600;flex:1}
+.turn-collapsed-meta{font-size:12px;color:var(--text3);display:flex;gap:12px}
+.turn-collapsed-expand{font-size:12px;color:var(--text3)}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+(function(){
+"use strict";
+
+/* ── DATA ── */
+var AGENTS=[
+  {id:'context_loader',name:'ContextLoader',desc:'加载会话上下文',phase:0},
+  {id:'router',name:'RouterAgent',desc:'识别意图与资产',phase:0},
+  {id:'asset_resolver',name:'AssetResolver',desc:'解析资产信息',phase:0},
+  {id:'planner',name:'PlannerAgent',desc:'动态规划分析任务',phase:1},
+  {id:'tool_executor',name:'ToolExecutor',desc:'并行执行工具调用',phase:2},
+  {id:'evidence_agent',name:'EvidenceAgent',desc:'整理证据池',phase:3},
+  {id:'answer_draft',name:'AnswerDraftAgent',desc:'生成分析草稿',phase:4},
+  {id:'critic',name:'CriticAgent',desc:'事实与逻辑校验',phase:4},
+  {id:'compliance',name:'ComplianceAgent',desc:'合规校验',phase:4},
+  {id:'answer_composer',name:'AnswerComposer',desc:'生成最终结论',phase:5}
+];
+
+var PHASES=[
+  {id:0,title:'问题理解',desc:'ContextLoader → RouterAgent → AssetResolver'},
+  {id:1,title:'动态规划',desc:'PlannerAgent'},
+  {id:2,title:'并行工具执行',desc:'多工具同时运行'},
+  {id:3,title:'证据汇总',desc:'EvidenceAgent'},
+  {id:4,title:'生成与校验',desc:'AnswerDraftAgent → CriticAgent → ComplianceAgent'},
+  {id:5,title:'最终结论',desc:'AnswerComposer'}
+];
+
+var MOCK_TOOLS=[
+  {id:'t1',name:'cn_stock_history',label:'行情数据',desc:'获取A股历史行情',params:'code=300750, period=3m',result:'近3个月股价下跌约15%, 最新收盘价186.2元, PE 22.5x',
+   logs:['识别 A 股代码 300750','获取近 90 日 K 线数据','计算波动率: 28.6%','计算区间涨跌: -15.2%','生成行情摘要']},
+  {id:'t2',name:'asset_news_search',label:'新闻检索',desc:'搜索资产相关新闻',params:'query=宁德时代, limit=10',result:'找到8条相关新闻, 含产能扩张、电池价格战等',
+   logs:['构建搜索关键词: 宁德时代 风险','检索近期新闻源','过滤无关标题','提取情感倾向: 偏负面','提取 8 条相关新闻']},
+  {id:'t3',name:'investment_framework_search',label:'知识库',desc:'查询投资知识库',params:'framework=battery_industry',result:'匹配3条行业分析框架',
+   logs:['查询新能源行业风险框架','匹配估值与财务指标文档','提取风险提示模板','命中 3 条知识证据']},
+  {id:'t4',name:'analysis',label:'综合分析',desc:'综合风险分析',params:'asset=300750, horizon=3m',result:'风险等级: 中等偏高',
+   logs:['汇总行情数据特征','叠加新闻情感信号','应用行业分析框架','计算综合风险评分','输出风险等级: 中等偏高']}
+];
+
+var MOCK_EVIDENCE=[
+  {id:'e1',type:'行情数据',source:'cn_stock_history',summary:'宁德时代近3个月下跌15%, 当前PE 22.5x处于历史低位',confidence:0.95,importance:'high',date:'2026-05-09'},
+  {id:'e2',type:'新闻',source:'asset_news_search',summary:'电池行业价格战加剧, 二三线厂商出清加速, 头部企业市占率提升',confidence:0.85,importance:'high',date:'2026-05-08'},
+  {id:'e3',type:'新闻',source:'asset_news_search',summary:'欧洲碳关税政策调整可能影响动力电池出口格局',confidence:0.78,importance:'medium',date:'2026-05-07'},
+  {id:'e4',type:'知识库',source:'investment_framework_search',summary:'电池行业产能过剩周期通常持续12-18个月, 当前处于中后期',confidence:0.80,importance:'medium',date:'2026-05-01'},
+  {id:'e5',type:'新闻',source:'asset_news_search',summary:'储能业务增速超预期, 成为第二增长曲线',confidence:0.82,importance:'medium',date:'2026-05-06'}
+];
+
+var MOCK_ANSWER={
+  summary:'宁德时代当前处于短期下行通道, 受电池行业价格战和产能过剩影响, 未来三个月面临一定压力。但公司作为行业龙头, 市占率仍在提升, 估值已处于历史低位, 中长期基本面依然稳健。',
+  key_points:['近3个月股价下跌约15%, 当前PE 22.5x处于近三年低位, 估值压力已部分释放','电池行业价格战加剧, 毛利率承压, 但头部企业受益于规模效应和市占率提升','储能业务增速超预期, 有望成为第二增长曲线, 对冲动力电池增速放缓'],
+  scenarios:[
+    {name:'乐观情景',probability:25,content:'储能业务超预期增长, 电池价格企稳回升, 股价反弹至220-240元区间'},
+    {name:'中性情景',probability:50,content:'行业维持当前竞争格局, 股价在170-210元区间震荡'},
+    {name:'悲观情景',probability:25,content:'价格战进一步加剧, 欧洲需求不及预期, 股价下探至150-170元'}
+  ],
+  risks:['电池行业价格战可能进一步挤压毛利率','欧美贸易政策变化可能影响出口业务','上游原材料价格波动带来成本不确定性','产能过剩消化仍需时间'],
+  action_options:['维持现有仓位, 设置止损位在170元','等待行业产能出清信号明确后再加仓','关注储能业务订单数据作为先行指标'],
+  data_limitations:['未获取最新2026Q1财报数据(尚未披露)','缺少实时订单和产能利用率数据','海外政策数据更新存在滞后'],
+  compliance_disclaimer:'本分析基于公开数据和AI模型推演, 不构成投资建议。投资有风险, 决策需谨慎。过往表现不代表未来收益。'
+};
+
+var MOCK_CRITIC={passed:true,score:88,issues:['部分新闻来源时效性不足, 建议补充最新数据'],missing_evidence:['2026Q1财报数据','实时产能利用率']};
+var MOCK_COMPLIANCE={passed:true,blocked:false,high_risk_expressions:false,risk_warning_added:true,inducement_check:false};
+
+var RECOMMENDED_QUESTIONS=['分析宁德时代未来三个月的风险','沪深300ETF适合长期定投吗','AAPL 当前估值贵不贵','半导体行业近期有哪些风险'];
+
+var AGENT_LOGS={
+  context_loader:['加载用户偏好: 稳健型','读取历史上下文: 无','初始化会话状态','上下文加载完成'],
+  router:['分析用户问题类型','识别为: 资产分析','检测到风险分析意图','判断需要: 行情数据 + 新闻检索 + 知识库','路由完成'],
+  asset_resolver:['解析资产名称: 宁德时代','匹配 A 股代码: 300750','置信度计算: 0.97','资产解析完成'],
+  planner:['根据资产类型选择 A 股工具','根据风险分析意图加入新闻检索','根据中期周期加入知识库框架','生成执行计划: 4 个工具调用','规划完成'],
+  evidence_agent:['收集工具执行结果','整理 5 条证据','按来源分类: 行情1 + 新闻3 + 知识库1','计算综合置信度','证据池构建完成'],
+  answer_draft:['构建分析框架','生成总体结论','计算情景概率分布','识别主要风险点','草稿生成完成'],
+  critic:['检查是否引用证据 ✓','检查是否遗漏主要风险 ✓','检查是否存在无依据结论 ✓','校验通过, 评分 88/100','建议补充数据时效说明'],
+  compliance:['检查确定性收益承诺: 无','检查诱导交易表达: 无','检查风险提示: 已添加','合规校验通过'],
+  answer_composer:['汇总分析结论','格式化情景分析','生成结构化报告','报告生成完成']
+};
+
+/* ── STATE ── */
+var state={
+  page:'home',
+  loginMode:'login',
+  loginForm:{username:'',email:'',password:''},
+  loginError:'',
+  loginSuccess:'',
+  settings:{riskPref:'稳健型',period:'三个月',debugMode:false,showTrace:false,defaultV2:true,notifications:true},
+  settingsSaveMsg:'',
+  riskPref:'稳健型',
+  period:'三个月',
+  debugMode:false,
+  phase:'hero',
+  query:'',
+  turns:[],
+  activePhase:-1,
+  activeAgents:{},
+  activeTools:{},
+  activeEvidence:[],
+  activeCritic:null,
+  activeCompliance:null,
+  activeAnswer:null,
+  activeQuery:'',
+  timerIds:[],
+  expandedTurns:{},
+  activeTab:'tools'
+};
+
+function defaultAgentState(){
+  var r={};
+  AGENTS.forEach(function(a){r[a.id]={status:'pending',duration:null,logs:[]}});
+  return r;
+}
+function defaultToolState(){
+  var r={};
+  MOCK_TOOLS.forEach(function(t){r[t.id]={status:'pending',progress:0,logs:[],duration:null,result:null}});
+  return r;
+}
+
+/* ── MOCK SESSIONS ── */
+function buildMockSessions(){
+  function completedAgents(extra){
+    var r={};
+    AGENTS.forEach(function(a){
+      var dur=a.id==='context_loader'?500:a.id==='router'?800:a.id==='asset_resolver'?600:a.id==='planner'?900:a.id==='tool_executor'?4100:a.id==='evidence_agent'?900:a.id==='answer_draft'?1800:a.id==='critic'?1200:a.id==='compliance'?800:600;
+      r[a.id]={status:'completed',duration:dur,logs:AGENT_LOGS[a.id]||[]};
+    });
+    if(extra) Object.keys(extra).forEach(function(k){r[k]=extra[k]});
+    return r;
+  }
+  function completedTools(tmpl){
+    var r={};
+    (tmpl||MOCK_TOOLS).forEach(function(t){r[t.id]={status:'completed',progress:100,duration:t==='MOCK_TOOLS[0]'?1200:800,logs:t.logs||[],result:t.result||null}});
+    MOCK_TOOLS.forEach(function(t,i){r[t.id]={status:'completed',progress:100,duration:[1200,800,600,1500][i],logs:t.logs,result:t.result}});
+    return r;
+  }
+  var turn1={
+    id:'turn_1',query:'分析宁德时代未来三个月的风险',queryType:'initial',
+    inheritedContext:null,changedContext:null,
+    agents:completedAgents(),tools:completedTools(),
+    evidenceItems:MOCK_EVIDENCE,criticResult:MOCK_CRITIC,complianceResult:MOCK_COMPLIANCE,
+    answer:MOCK_ANSWER,createdAt:'2026-05-09 14:30:00'
+  };
+  var turn2Tools={};
+  [{id:'t1',logs:['识别 A 股代码 300750','获取近 180 日 K 线数据','计算波动率: 34.2%','计算区间涨跌: -22.1%','生成行情摘要'],result:'近6个月股价下跌约22%, 波动加大, 支撑位在165元'},
+   {id:'t2',logs:['复用上一轮新闻缓存','补充最新 2 条新闻'],result:'新增 2 条相关新闻'},
+   {id:'t3',logs:['查询半年维度分析框架','匹配 2 条框架'],result:'匹配 2 条半年维度分析框架'},
+   {id:'t4',logs:['汇总半年期数据','应用更新后分析框架','输出风险等级: 中等'],result:'半年期风险等级: 中等'}
+  ].forEach(function(t){turn2Tools[t.id]={status:'completed',progress:100,duration:800,logs:t.logs,result:t.result}});
+  var turn2={
+    id:'turn_2',query:'如果周期改成半年呢？',queryType:'follow_up',
+    inheritedContext:{asset:'宁德时代 / A股 / 300750',riskPref:'稳健型',evidence:'复用上一轮证据池, 行情2条 / 新闻4条 / 知识库1条'},
+    changedContext:{investment_period:{from:'未来三个月',to:'未来半年'}},
+    agents:completedAgents({planner:{status:'completed',duration:180,logs:['检测到投资周期变更','决定补查半年期行情','更新执行计划']}}),
+    tools:turn2Tools,
+    evidenceItems:[{id:'e6',type:'行情数据',source:'cn_stock_history',summary:'近6个月下跌22%, 波动率上升, 支撑位在165元',confidence:0.93,importance:'high',date:'2026-05-09'},{id:'e7',type:'知识库',source:'investment_framework_search',summary:'半年维度下, 产能出清有望取得实质进展, 基本面改善概率上升',confidence:0.75,importance:'medium',date:'2026-05-01'}],
+    criticResult:{passed:true,score:85,issues:['半年期预测不确定性较高, 建议增加更多情景分支'],missing_evidence:[]},
+    complianceResult:MOCK_COMPLIANCE,
+    answer:{summary:'将投资周期延长至半年后, 分析框架发生变化。半年维度下, 行业产能出清可能取得实质进展, 但不确定性也相应增加。建议采用更灵活的仓位管理策略。',key_points:['半年维度下波动加大, 支撑位在165元, 较三个月分析更深','产能出清在半年内有望取得实质进展, 基本面改善概率上升','建议采用分批建仓策略, 控制单次投入规模'],scenarios:[{name:'乐观情景',probability:30,content:'产能出清完成, 需求回暖, 股价反弹至230-260元'},{name:'中性情景',probability:45,content:'行业缓慢修复, 股价在160-220元宽幅震荡'},{name:'悲观情景',probability:25,content:'价格战持续, 需求疲软, 股价下探至140-160元'}],risks:['半年时间跨度内政策变化不确定性更高','上游原材料长协价格谈判可能影响成本','新进入者可能加剧竞争'],action_options:['分批建仓, 每次不超过目标仓位的1/3','设置止损位在165元','每季度重新评估一次分析框架'],data_limitations:['缺少半年维度的精确产能规划数据','新工厂投产时间表存在不确定性'],compliance_disclaimer:'本分析基于公开数据和AI模型推演, 不构成投资建议。投资有风险, 决策需谨慎。'},
+    createdAt:'2026-05-09 14:32:00'
+  };
+  return{sess_1:{id:'sess_1',title:'宁德时代风险分析',createdAt:'2026-05-09 14:30:00',context:{asset:'宁德时代 / A股 / 300750',riskPref:'稳健型',period:'三个月'},turns:[turn1,turn2]}};
+}
+var mockSessions=buildMockSessions();
+
+/* ── HELPERS ── */
+function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML}
+
+/* ── RENDER ── */
+function render(){
+  var root=document.getElementById('root');
+  root.innerHTML=renderHeader()+renderPage();
+  bindEvents();
+}
+
+function renderHeader(){
+  var p=state.page;
+  return '<header class="header"><div class="header-inner">'+
+    '<div class="logo" data-nav="home">'+
+      '<svg width="28" height="28" viewBox="0 0 28 28" fill="none"><rect width="28" height="28" rx="6" fill="url(#lg)"/><path d="M8 20V8l6 6 6-6v12" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><defs><linearGradient id="lg" x1="0" y1="0" x2="28" y2="28"><stop stop-color="#dc2626"/><stop offset="1" stop-color="#f97316"/></linearGradient></defs></svg>'+
+      '<span class="logo-text">AI 投资研究</span>'+
+    '</div>'+
+    '<nav class="nav">'+
+      [['home','首页'],['research','研究'],['history','历史'],['settings','设置']].map(function(x){
+        return '<button class="nav-btn'+(p===x[0]?' active':'')+'" data-nav="'+x[0]+'">'+x[1]+'</button>';
+      }).join('')+
+    '</nav>'+
+    '<div class="header-right">'+
+      '<button class="login-btn" data-nav="login">登录</button>'+
+      '<button class="cta-btn" data-nav="research">开始研究</button>'+
+    '</div>'+
+  '</div></header>';
+}
+
+function renderPage(){
+  if(state.page==='home') return renderHome();
+  if(state.page==='login') return renderLogin();
+  if(state.page==='research') return renderResearch();
+  if(state.page==='history') return renderHistory();
+  if(state.page==='settings') return renderSettings();
+  return renderHome();
+}
+
+function renderHome(){
+  return '<div class="page">'+
+    '<div class="hero">'+
+      '<div class="hero-badge">V2 · 过程可视化</div>'+
+      '<h1 class="hero-title">AI 投资研究 Agent</h1>'+
+      '<p class="hero-sub">让每一次分析都有过程、有证据、有风险边界</p>'+
+      '<div class="hero-actions">'+
+        '<button class="hero-cta" data-nav="research">开始研究 →</button>'+
+        '<button class="hero-secondary" data-nav="login">注册 / 登录</button>'+
+      '</div>'+
+    '</div>'+
+    '<div class="features">'+
+      [{icon:'◉',title:'过程可视化',desc:'实时观察每个 Agent 的工作状态, 工具调用、证据收集、风险校验全程透明'},
+       {icon:'◎',title:'证据链追溯',desc:'每条结论都有明确的数据来源和置信度, 知其然更知其所以然'},
+       {icon:'◈',title:'多轮追问',desc:'围绕同一主题持续追问, 形成无限迭代的研究线程, 深挖到底'},
+       {icon:'◇',title:'合规分析',desc:'内置 Critic 校验和合规审查, 确保分析严谨、表述合规'}
+      ].map(function(f){
+        return '<div class="feature-card"><div class="feature-icon">'+f.icon+'</div><h3 class="feature-title">'+f.title+'</h3><p class="feature-desc">'+f.desc+'</p></div>';
+      }).join('')+
+    '</div>'+
+    '<h2 class="section-title">10 个 Agent 协同工作</h2>'+
+    '<div class="agent-grid">'+
+      AGENTS.map(function(a,i){
+        return '<div class="agent-chip"><span class="agent-num">'+String(i+1).padStart(2,'0')+'</span><span class="agent-name">'+a.name+'</span><span class="agent-desc-sm">'+a.desc+'</span></div>';
+      }).join('')+
+    '</div>'+
+  '</div>';
+}
+
+function renderLogin(){
+  var m=state.loginMode;
+  return '<div class="page login-page"><div class="login-card">'+
+    '<h2 class="login-title">'+(m==='login'?'登录':'注册')+'</h2>'+
+    '<p class="login-sub">'+(m==='login'?'登录后开始 AI 投资研究':'创建账户, 开始智能投资分析')+'</p>'+
+    '<div class="form-group"><label class="form-label">用户名</label><input class="form-input" id="login-username" value="'+esc(state.loginForm.username)+'" placeholder="请输入用户名"/></div>'+
+    (m==='register'?'<div class="form-group"><label class="form-label">邮箱</label><input class="form-input" type="email" id="login-email" value="'+esc(state.loginForm.email)+'" placeholder="请输入邮箱"/></div>':'')+
+    '<div class="form-group"><label class="form-label">密码</label><input class="form-input" type="password" id="login-password" value="'+esc(state.loginForm.password)+'" placeholder="请输入密码"/></div>'+
+    (state.loginError?'<div class="form-error">'+esc(state.loginError)+'</div>':'')+
+    (state.loginSuccess?'<div class="form-success">'+esc(state.loginSuccess)+'</div>':'')+
+    '<button class="login-submit" id="login-submit">'+(m==='login'?'登录':'注册')+'</button>'+
+    '<div class="login-switch">'+(m==='login'?'<span>没有账户? <button class="link-btn" id="switch-register">立即注册</button></span>':'<span>已有账户? <button class="link-btn" id="switch-login">去登录</button></span>')+'</div>'+
+  '</div></div>';
+}
+
+function renderSettings(){
+  var s=state.settings;
+  return '<div class="page">'+
+    '<h1 class="page-title">设置</h1>'+
+    '<div class="settings-grid">'+
+      '<div class="settings-section">'+
+        '<h3 class="settings-section-title">分析偏好</h3>'+
+        '<div class="form-group"><label class="form-label">默认风险偏好</label><select class="form-input" id="set-riskPref">'+['保守型','稳健型','平衡型','进取型','激进型'].map(function(v){return '<option'+(s.riskPref===v?' selected':'')+'>'+v+'</option>'}).join('')+'</select></div>'+
+        '<div class="form-group"><label class="form-label">默认投资周期</label><select class="form-input" id="set-period">'+['一个月','三个月','半年','一年','三年'].map(function(v){return '<option'+(s.period===v?' selected':'')+'>'+v+'</option>'}).join('')+'</select></div>'+
+        '<div class="form-group" style="display:flex;align-items:center;gap:12px"><label class="form-label" style="margin:0">默认进入 V2 分析</label><button class="toggle'+(s.defaultV2?' on':'')+'" data-toggle="defaultV2"><div class="toggle-knob"></div></button></div>'+
+      '</div>'+
+      '<div class="settings-section">'+
+        '<h3 class="settings-section-title">开发者选项</h3>'+
+        '<div class="form-group" style="display:flex;align-items:center;gap:12px"><label class="form-label" style="margin:0">调试模式</label><button class="toggle'+(s.debugMode?' on':'')+'" data-toggle="debugMode"><div class="toggle-knob"></div></button><span class="hint">开启后可查看原始 trace 和工具参数</span></div>'+
+        '<div class="form-group" style="display:flex;align-items:center;gap:12px"><label class="form-label" style="margin:0">显示完整 Agent Trace</label><button class="toggle'+(s.showTrace?' on':'')+'" data-toggle="showTrace"><div class="toggle-knob"></div></button></div>'+
+      '</div>'+
+      '<div class="settings-section">'+
+        '<h3 class="settings-section-title">通知</h3>'+
+        '<div class="form-group" style="display:flex;align-items:center;gap:12px"><label class="form-label" style="margin:0">研究完成通知</label><button class="toggle'+(s.notifications?' on':'')+'" data-toggle="notifications"><div class="toggle-knob"></div></button></div>'+
+      '</div>'+
+    '</div>'+
+    '<div class="settings-actions"><button class="hero-cta" id="settings-save">保存设置</button>'+(state.settingsSaveMsg?'<span style="color:var(--green);margin-left:16px;font-size:14px">'+esc(state.settingsSaveMsg)+'</span>':'')+'</div>'+
+  '</div>';
+}
+
+function renderHistory(){
+  var sessions=Object.values(mockSessions);
+  return '<div class="page">'+
+    '<h1 class="page-title">历史研究</h1>'+
+    (sessions.length===0?'<div class="empty-state"><p style="color:var(--text3);font-size:16px">暂无研究记录</p><button class="hero-cta" style="margin-top:20px" data-nav="research">开始第一次研究</button></div>':
+    '<div class="history-grid">'+sessions.map(function(sess){
+      return '<div class="history-card" data-nav="research">'+
+        '<div class="history-card-header"><h3 class="history-title">'+esc(sess.title)+'</h3><span class="history-date">'+esc(sess.createdAt.split(' ')[0])+'</span></div>'+
+        '<div class="history-meta"><span>'+sess.turns.length+' 轮研究</span><span>·</span><span>'+esc(sess.context.asset.split('/')[0].trim())+'</span></div>'+
+        '<p class="history-query">'+esc(sess.turns[0].query)+'</p>'+
+        '<div class="history-tags"><span class="tag">'+esc(sess.context.riskPref)+'</span><span class="tag">'+esc(sess.context.period)+'</span></div>'+
+      '</div>';
+    }).join('')+'</div>')+
+  '</div>';
+}
+
+function renderResearch(){
+  if(state.phase==='hero') return renderResearchHero();
+  var html='<div class="page">';
+  state.turns.forEach(function(turn,idx){
+    var isLast=idx===state.turns.length-1&&state.phase!=='analyzing';
+    if(state.expandedTurns[turn.id]){
+      html+=renderFlowCanvas(turn,idx,false);
+    }else{
+      html+=renderTurnCollapsed(turn,idx);
+    }
+  });
+  if(state.phase==='analyzing'){
+    html+=renderActiveCanvas();
+  }
+  if(state.phase==='done'){
+    html+=renderFollowUp();
+  }
+  html+='</div>';
+  return html;
+}
+
+function renderResearchHero(){
+  return '<div class="page"><div class="research-hero">'+
+    '<h1 class="research-hero-title">你想研究什么？</h1>'+
+    '<textarea class="big-input" id="hero-input" placeholder="输入你想研究的投资问题, 例如: 分析宁德时代未来三个月的风险">'+esc(state.query)+'</textarea>'+
+    '<div class="options-bar">'+
+      '<div class="option-group"><span class="option-label">风险偏好</span><select class="opt-select" id="opt-riskPref">'+['保守型','稳健型','平衡型','进取型','激进型'].map(function(v){return '<option'+(state.riskPref===v?' selected':'')+'>'+v+'</option>'}).join('')+'</select></div>'+
+      '<div class="option-group"><span class="option-label">投资周期</span><select class="opt-select" id="opt-period">'+['一个月','三个月','半年','一年'].map(function(v){return '<option'+(state.period===v?' selected':'')+'>'+v+'</option>'}).join('')+'</select></div>'+
+      '<div class="option-group"><span class="option-label">调试模式</span><button class="toggle'+(state.debugMode?' on':'')+'" data-toggle="debugMode"><div class="toggle-knob"></div></button></div>'+
+    '</div>'+
+    '<div class="hero-btn-row"><button class="analyze-btn" id="analyze-btn">开始分析</button></div>'+
+    '<div class="recommend-section"><span class="recommend-label">推荐问题</span><div class="chips">'+
+      RECOMMENDED_QUESTIONS.map(function(q){return '<button class="chip" data-rec="'+esc(q)+'">'+esc(q)+'</button>'}).join('')+
+    '</div></div>'+
+    '<div class="recommend-section" style="margin-top:16px"><button class="load-btn" id="load-example">加载示例研究 (宁德时代)</button></div>'+
+  '</div></div>';
+}
+
+function renderTurnCollapsed(turn,idx){
+  var evCount=turn.evidenceItems?turn.evidenceItems.length:0;
+  return '<div class="turn-collapsed" data-expand="'+turn.id+'">'+
+    '<span class="flow-canvas-badge">'+(turn.queryType==='initial'?'主问题':'追问 '+idx)+'</span>'+
+    '<span class="turn-collapsed-title">'+esc(turn.query)+'</span>'+
+    '<span class="turn-collapsed-meta">'+
+      '<span>'+evCount+' 条证据</span>'+
+      '<span>'+turn.createdAt+'</span>'+
+    '</span>'+
+    '<span class="turn-collapsed-expand">展开 ▾</span>'+
+  '</div>';
+}
+
+/* ── FLOW CANVAS ── */
+function renderFlowCanvas(turn,idx,isActive){
+  var agents=isActive?state.activeAgents:(turn.agents||defaultAgentState());
+  var tools=isActive?state.activeTools:(turn.tools||defaultToolState());
+  var evidence=isActive?state.activeEvidence:(turn.evidenceItems||[]);
+  var critic=isActive?state.activeCritic:(turn.criticResult||null);
+  var compliance=isActive?state.activeCompliance:(turn.complianceResult||null);
+  var answer=isActive?state.activeAnswer:(turn.answer||null);
+  var currentPhase=isActive?state.activePhase:5;
+
+  var html='<div class="flow-canvas fade-in">'+
+    '<div class="flow-canvas-header">'+
+      '<span class="flow-canvas-badge">'+(turn.queryType==='initial'?'主问题':'追问 '+(idx||0))+'</span>'+
+      '<h2 class="flow-canvas-query">'+esc(turn.query)+'</h2>'+
+      '<span class="flow-canvas-time">'+esc(turn.createdAt)+'</span>'+
+    '</div>';
+
+  if(turn.inheritedContext){
+    html+='<div class="context-block"><div class="context-row"><span class="context-label">继承上下文</span>'+
+      '<span class="context-value">资产: '+esc(turn.inheritedContext.asset)+'</span>'+
+      '<span class="context-value">风险偏好: '+esc(turn.inheritedContext.riskPref)+'</span>'+
+      '<span class="context-value">已复用证据: '+esc(turn.inheritedContext.evidence)+'</span></div>';
+    if(turn.changedContext){
+      html+='<div class="context-row"><span class="context-label">本轮变化</span>';
+      Object.keys(turn.changedContext).forEach(function(k){
+        var v=turn.changedContext[k];
+        html+='<span class="context-value">'+(k==='investment_period'?'投资周期':k)+': '+esc(v.from)+' → '+esc(v.to)+'</span>';
+      });
+      html+='</div>';
+    }
+    html+='</div>';
+  }
+
+  PHASES.forEach(function(phase){
+    var pAgents=AGENTS.filter(function(a){return a.phase===phase.id});
+    var phaseStatus='pending';
+    if(phase.id<currentPhase) phaseStatus='completed';
+    else if(phase.id===currentPhase) phaseStatus='running';
+
+    html+='<div class="phase'+(phaseStatus==='running'?' active':'')+(phaseStatus==='completed'?' completed':'')+'">';
+    html+='<div class="phase-header">'+
+      '<div class="phase-num">'+String(phase.id+1).padStart(2,'0')+'</div>'+
+      '<span class="phase-title">'+phase.title+'</span>'+
+      '<span class="phase-status '+phaseStatus+'">'+(phaseStatus==='running'?'运行中':phaseStatus==='completed'?'已完成':'等待')+'</span>'+
+    '</div>';
+
+    if(phase.id===2){
+      html+=renderParallelTools(tools,phaseStatus);
+    }else{
+      html+=renderSerialAgents(pAgents,agents,phaseStatus);
+    }
+    html+='</div>';
+  });
+
+  if(evidence.length>0){
+    html+=renderEvidencePanel(evidence);
+  }
+  if(critic||compliance){
+    html+=renderValidationPanel(critic,compliance);
+  }
+  if(answer){
+    html+=renderReport(answer);
+  }
+
+  if(!isActive){
+    html+='<button class="expand-btn" data-expand="'+turn.id+'">折叠流程 ▴</button>';
+  }
+
+  html+='</div>';
+  return html;
+}
+
+function renderSerialAgents(phaseAgents,allAgents,status){
+  var html='<div class="serial-agents">';
+  phaseAgents.forEach(function(agent,i){
+    var aState=allAgents[agent.id]||{status:'pending',duration:null,logs:[]};
+    var aStatus=aState.status;
+    if(i>0) html+='<div class="serial-arrow">→</div>';
+    html+='<div class="serial-agent '+aStatus+'">';
+    html+='<div class="serial-agent-head">'+
+      '<div class="serial-agent-dot '+aStatus+'"></div>'+
+      '<span class="serial-agent-name">'+esc(agent.name)+'</span>'+
+      '<span class="serial-agent-status '+aStatus+'">'+(aStatus==='running'?'运行中':aStatus==='completed'?'已完成':'等待')+'</span>'+
+      (aState.duration?'<span class="serial-agent-duration">'+aState.duration+'ms</span>':'')+
+    '</div>';
+    html+='<span style="font-size:12px;color:var(--text3)">'+esc(agent.desc)+'</span>';
+    if(aState.logs&&aState.logs.length>0){
+      html+='<div class="agent-logs">';
+      aState.logs.forEach(function(log,li){
+        var isLast=li===aState.logs.length-1&&aStatus==='completed';
+        html+='<div class="agent-log-line'+(isLast?' done':'')+'" style="animation-delay:'+(li*0.08)+'s">'+esc(log)+'</div>';
+      });
+      html+='</div>';
+    }
+    html+='</div>';
+  });
+  html+='</div>';
+  return html;
+}
+
+function renderParallelTools(tools,status){
+  var html='<div class="parallel-grid">';
+  MOCK_TOOLS.forEach(function(tool){
+    var tState=tools[tool.id]||{status:'pending',progress:0,logs:[],duration:null,result:null};
+    var tStatus=tState.status;
+    html+='<div class="tool-card '+tStatus+'">';
+    html+='<div class="tool-card-head">'+
+      '<span class="tool-card-name">'+esc(tool.name)+'</span>'+
+      '<span class="tool-card-status '+tStatus+'">'+(tStatus==='running'?'运行中':tStatus==='completed'?'完成':'等待')+'</span>'+
+    '</div>';
+    html+='<span class="tool-card-desc">'+esc(tool.desc)+'</span>';
+    html+='<div class="tool-card-progress"><div class="tool-card-progress-fill'+(tStatus==='completed'?' done':'')+'" style="width:'+tState.progress+'%"></div></div>';
+    if(tState.logs&&tState.logs.length>0){
+      html+='<div class="tool-card-logs">';
+      tState.logs.forEach(function(log,li){
+        var isLast=li===tState.logs.length-1&&tStatus==='completed';
+        html+='<div class="tool-card-log'+(isLast?' done':'')+'" style="animation-delay:'+(li*0.1)+'s">'+esc(log)+'</div>';
+      });
+      html+='</div>';
+    }
+    if(tState.result){
+      html+='<div class="tool-card-result">'+esc(tState.result)+'</div>';
+    }
+    html+='</div>';
+  });
+  html+='</div>';
+  return html;
+}
+
+function renderEvidencePanel(evidence){
+  var html='<div class="phase" style="margin-top:8px"><div class="phase-header">'+
+    '<div class="phase-num">E</div><span class="phase-title">证据池</span>'+
+    '<span style="font-size:12px;color:var(--text3)">'+evidence.length+' 条</span></div>';
+  evidence.forEach(function(ev){
+    html+='<div class="evidence-item">'+
+      '<div class="evidence-header"><span class="evidence-type">'+esc(ev.type)+'</span><span class="evidence-source">'+esc(ev.source)+'</span><span class="evidence-conf" style="color:'+(ev.confidence>0.9?'var(--green)':ev.confidence>0.8?'var(--yellow)':'var(--text3)')+'">'+(ev.confidence*100).toFixed(0)+'%</span></div>'+
+      '<p class="evidence-summary">'+esc(ev.summary)+'</p>'+
+      '<div class="evidence-meta"><span>重要性: '+(ev.importance==='high'?'高':'中')+'</span><span>数据时间: '+esc(ev.date)+'</span></div>'+
+    '</div>';
+  });
+  html+='</div>';
+  return html;
+}
+
+function renderValidationPanel(critic,compliance){
+  var html='<div class="phase" style="margin-top:8px"><div class="phase-header">'+
+    '<div class="phase-num">V</div><span class="phase-title">校验记录</span></div>';
+  if(critic){
+    html+='<div class="validation-block"><div class="validation-header"><span class="validation-title">Critic 校验</span><span style="color:'+(critic.passed?'var(--green)':'var(--red-bright)')+'">'+(critic.passed?'通过':'未通过')+'</span><span class="validation-score">评分 '+critic.score+'/100</span></div>';
+    critic.issues.forEach(function(issue){html+='<div class="validation-issue">⚠ '+esc(issue)+'</div>'});
+    if(critic.missing_evidence&&critic.missing_evidence.length>0) html+='<div class="validation-missing">缺失证据: '+esc(critic.missing_evidence.join(', '))+'</div>';
+    html+='</div>';
+  }
+  if(compliance){
+    html+='<div class="validation-block"><div class="validation-header"><span class="validation-title">合规校验</span><span style="color:'+(compliance.passed?'var(--green)':'var(--red-bright)')+'">'+(compliance.passed?'通过':'未通过')+'</span></div><div class="compliance-checks"><span class="check-item">✓ 无确定性收益承诺</span><span class="check-item">✓ 无诱导交易表达</span><span class="check-item">✓ 已添加风险提示</span></div></div>';
+  }
+  html+='</div>';
+  return html;
+}
+
+function renderActiveCanvas(){
+  var turn={
+    id:'active',query:state.activeQuery,queryType:state.turns.length===0?'initial':'follow_up',
+    inheritedContext:state.turns.length>0?{asset:'宁德时代 / A股 / 300750',riskPref:state.riskPref,evidence:'复用上一轮证据池'}:null,
+    changedContext:null,
+    createdAt:new Date().toLocaleString('zh-CN')
+  };
+  return renderFlowCanvas(turn,state.turns.length,true);
+}
+
+function renderReport(answer){
+  var html='<div class="report"><h3 class="report-title">分析结论</h3>';
+  html+='<div class="report-section"><h4 class="report-section-title">总体结论</h4><p class="report-text">'+esc(answer.summary)+'</p></div>';
+  html+='<div class="report-section"><h4 class="report-section-title">关键判断</h4><ol class="key-points">'+answer.key_points.map(function(p){return '<li class="key-point">'+esc(p)+'</li>'}).join('')+'</ol></div>';
+  html+='<div class="report-section"><h4 class="report-section-title">情景分析</h4><div class="scenario-grid">'+answer.scenarios.map(function(sc,i){
+    var c=i===0?'var(--green)':i===1?'var(--orange)':'var(--red)';
+    return '<div class="scenario-card"><div class="scenario-header"><span class="scenario-name">'+esc(sc.name)+'</span><span class="scenario-prob">'+sc.probability+'%</span></div><div class="prob-bar"><div class="prob-fill" style="width:'+sc.probability+'%;background:'+c+'"></div></div><p class="scenario-text">'+esc(sc.content)+'</p></div>';
+  }).join('')+'</div></div>';
+  html+='<div class="report-section"><h4 class="report-section-title">主要风险</h4><ul class="risk-list">'+answer.risks.map(function(r){return '<li class="risk-item">'+esc(r)+'</li>'}).join('')+'</ul></div>';
+  html+='<div class="report-section"><h4 class="report-section-title">可选操作</h4><ul class="risk-list">'+answer.action_options.map(function(a){return '<li class="risk-item">'+esc(a)+'</li>'}).join('')+'</ul></div>';
+  if(answer.data_limitations.length>0){
+    html+='<div class="report-section"><h4 class="report-section-title">数据限制</h4><ul class="risk-list">'+answer.data_limitations.map(function(d){return '<li class="risk-item" style="color:var(--yellow)">'+esc(d)+'</li>'}).join('')+'</ul></div>';
+  }
+  html+='<div class="compliance-banner"><span class="compliance-icon">⚠</span><span class="compliance-text">'+esc(answer.compliance_disclaimer)+'</span></div>';
+  html+='</div>';
+  return html;
+}
+
+function renderFollowUp(){
+  return '<div class="follow-up-section">'+
+    '<div class="follow-up-context">'+
+      '<span style="color:var(--text3);font-size:13px">当前上下文</span>'+
+      '<span style="color:var(--text2);font-size:13px">宁德时代 300750 · '+esc(state.period)+' · '+esc(state.riskPref)+' · 累计 '+state.turns.reduce(function(a,t){return a+(t.evidenceItems?t.evidenceItems.length:0)},0)+' 条证据</span>'+
+    '</div>'+
+    '<div class="follow-up-row">'+
+      '<textarea class="follow-up-input" id="follow-up-input" placeholder="继续追问这份研究...">'+esc(state.query)+'</textarea>'+
+      '<button class="follow-up-btn" id="follow-up-btn">继续分析</button>'+
+    '</div>'+
+    '<div class="follow-up-chips">'+
+      ['如果周期改成半年呢？','最大的风险是什么？','和比亚迪相比呢？'].map(function(q){return '<button class="chip" data-fup="'+esc(q)+'">'+esc(q)+'</button>'}).join('')+
+    '</div>'+
+  '</div>';
+}
+
+/* ── SSE SIMULATION ── */
+function startAnalysis(q){
+  if(!q.trim()) return;
+  state.phase='analyzing';
+  state.activeQuery=q;
+  state.activePhase=-1;
+  state.activeAgents=defaultAgentState();
+  state.activeTools=defaultToolState();
+  state.activeEvidence=[];
+  state.activeCritic=null;
+  state.activeCompliance=null;
+  state.activeAnswer=null;
+  state.timerIds.forEach(clearTimeout);
+  state.timerIds=[];
+  render();
+
+  var t=0;
+  var step=200;
+
+  // Phase 0: Understanding
+  t+=300;
+  schedule(t,function(){state.activePhase=0;render()});
+  // ContextLoader logs
+  var clLogs=AGENT_LOGS.context_loader;
+  clLogs.forEach(function(log,i){
+    t+=180;
+    (function(log,i){
+      schedule(t,function(){
+        state.activeAgents.context_loader.logs.push(log);
+        if(i===0) state.activeAgents.context_loader.status='running';
+        render();
+      });
+    })(log,i);
+  });
+  t+=200;
+  schedule(t,function(){state.activeAgents.context_loader.status='completed';state.activeAgents.context_loader.duration=500;render()});
+
+  // Router logs
+  t+=step;
+  schedule(t,function(){state.activeAgents.router.status='running';render()});
+  var rtLogs=AGENT_LOGS.router;
+  rtLogs.forEach(function(log,i){
+    t+=200;
+    (function(log){schedule(t,function(){state.activeAgents.router.logs.push(log);render()})})(log);
+  });
+  t+=200;
+  schedule(t,function(){state.activeAgents.router.status='completed';state.activeAgents.router.duration=800;render()});
+
+  // AssetResolver logs
+  t+=step;
+  schedule(t,function(){state.activeAgents.asset_resolver.status='running';render()});
+  var arLogs=AGENT_LOGS.asset_resolver;
+  arLogs.forEach(function(log,i){
+    t+=180;
+    (function(log){schedule(t,function(){state.activeAgents.asset_resolver.logs.push(log);render()})})(log);
+  });
+  t+=200;
+  schedule(t,function(){state.activeAgents.asset_resolver.status='completed';state.activeAgents.asset_resolver.duration=600;render()});
+
+  // Phase 1: Planning
+  t+=step;
+  schedule(t,function(){state.activePhase=1;state.activeAgents.planner.status='running';render()});
+  var plLogs=AGENT_LOGS.planner;
+  plLogs.forEach(function(log){
+    t+=220;
+    (function(log){schedule(t,function(){state.activeAgents.planner.logs.push(log);render()})})(log);
+  });
+  t+=300;
+  schedule(t,function(){state.activeAgents.planner.status='completed';state.activeAgents.planner.duration=900;render()});
+
+  // Phase 2: Parallel tools
+  t+=step;
+  schedule(t,function(){state.activePhase=2;render()});
+  // Start all tools simultaneously
+  t+=200;
+  schedule(t,function(){
+    MOCK_TOOLS.forEach(function(tool){state.activeTools[tool.id].status='running'});
+    render();
+  });
+
+  // Feed tool logs in parallel over time
+  var maxLogs=0;
+  MOCK_TOOLS.forEach(function(tool){if(tool.logs.length>maxLogs) maxLogs=tool.logs.length});
+  for(var li=0;li<maxLogs;li++){
+    t+=300;
+    (function(li){
+      schedule(t,function(){
+        MOCK_TOOLS.forEach(function(tool){
+          if(li<tool.logs.length){
+            state.activeTools[tool.id].logs.push(tool.logs[li]);
+            state.activeTools[tool.id].progress=Math.min(100,Math.round(((li+1)/tool.logs.length)*100));
+          }
+        });
+        render();
+      });
+    })(li);
+  }
+
+  // Complete tools at different times
+  var toolDurs=[1200,800,600,1500];
+  MOCK_TOOLS.forEach(function(tool,i){
+    t+=(i===0?400:200);
+    (function(tool,i){
+      schedule(t,function(){
+        state.activeTools[tool.id].status='completed';
+        state.activeTools[tool.id].progress=100;
+        state.activeTools[tool.id].duration=toolDurs[i];
+        state.activeTools[tool.id].result=tool.result;
+        render();
+      });
+    })(tool,i);
+  });
+
+  // Phase 3: Evidence
+  t+=400;
+  schedule(t,function(){state.activePhase=3;state.activeAgents.evidence_agent.status='running';render()});
+  var evLogs=AGENT_LOGS.evidence_agent;
+  evLogs.forEach(function(log,i){
+    t+=220;
+    (function(log,i){
+      schedule(t,function(){
+        state.activeAgents.evidence_agent.logs.push(log);
+        if(i<MOCK_EVIDENCE.length) state.activeEvidence.push(MOCK_EVIDENCE[i]);
+        render();
+      });
+    })(log,i);
+  });
+  t+=300;
+  schedule(t,function(){state.activeAgents.evidence_agent.status='completed';state.activeAgents.evidence_agent.duration=900;render()});
+
+  // Phase 4: Generation & Validation
+  t+=step;
+  schedule(t,function(){state.activePhase=4;state.activeAgents.answer_draft.status='running';render()});
+  var adLogs=AGENT_LOGS.answer_draft;
+  adLogs.forEach(function(log){
+    t+=400;
+    (function(log){schedule(t,function(){state.activeAgents.answer_draft.logs.push(log);render()})})(log);
+  });
+  t+=300;
+  schedule(t,function(){state.activeAgents.answer_draft.status='completed';state.activeAgents.answer_draft.duration=1800;render()});
+
+  // Critic
+  t+=step;
+  schedule(t,function(){state.activeAgents.critic.status='running';render()});
+  var crLogs=AGENT_LOGS.critic;
+  crLogs.forEach(function(log){
+    t+=280;
+    (function(log){schedule(t,function(){state.activeAgents.critic.logs.push(log);render()})})(log);
+  });
+  t+=200;
+  schedule(t,function(){state.activeAgents.critic.status='completed';state.activeAgents.critic.duration=1200;state.activeCritic=MOCK_CRITIC;render()});
+
+  // Compliance
+  t+=step;
+  schedule(t,function(){state.activeAgents.compliance.status='running';render()});
+  var coLogs=AGENT_LOGS.compliance;
+  coLogs.forEach(function(log){
+    t+=240;
+    (function(log){schedule(t,function(){state.activeAgents.compliance.logs.push(log);render()})})(log);
+  });
+  t+=200;
+  schedule(t,function(){state.activeAgents.compliance.status='completed';state.activeAgents.compliance.duration=800;state.activeCompliance=MOCK_COMPLIANCE;render()});
+
+  // Phase 5: Final
+  t+=step;
+  schedule(t,function(){state.activePhase=5;state.activeAgents.answer_composer.status='running';render()});
+  var acLogs=AGENT_LOGS.answer_composer;
+  acLogs.forEach(function(log){
+    t+=200;
+    (function(log){schedule(t,function(){state.activeAgents.answer_composer.logs.push(log);render()})})(log);
+  });
+  t+=400;
+  schedule(t,function(){
+    state.activeAgents.answer_composer.status='completed';
+    state.activeAgents.answer_composer.duration=600;
+    state.activeAnswer=MOCK_ANSWER;
+    render();
+  });
+
+  // Complete
+  t+=600;
+  schedule(t,function(){
+    state.turns.push({
+      id:'turn_'+(state.turns.length+1),query:q,
+      queryType:state.turns.length===0?'initial':'follow_up',
+      inheritedContext:state.turns.length>0?{asset:'宁德时代 / A股 / 300750',riskPref:state.riskPref,evidence:'复用上一轮证据池'}:null,
+      changedContext:state.turns.length>0?{investment_period:{from:'三个月',to:'半年'}}:null,
+      agents:JSON.parse(JSON.stringify(state.activeAgents)),
+      tools:JSON.parse(JSON.stringify(state.activeTools)),
+      evidenceItems:[].concat(state.activeEvidence),
+      criticResult:state.activeCritic,complianceResult:state.activeCompliance,
+      answer:state.activeAnswer,createdAt:new Date().toLocaleString('zh-CN')
+    });
+    state.phase='done';
+    state.activePhase=-1;
+    render();
+  });
+}
+
+function schedule(ms,fn){state.timerIds.push(setTimeout(fn,ms))}
+
+function loadExampleSession(){
+  var sess=mockSessions.sess_1;
+  state.turns=sess.turns;
+  state.phase='done';
+  state.query='';
+  render();
+}
+
+/* ── EVENTS ── */
+function bindEvents(){
+  document.querySelectorAll('[data-nav]').forEach(function(el){
+    el.addEventListener('click',function(){navigate(el.getAttribute('data-nav'))});
+  });
+  document.querySelectorAll('[data-toggle]').forEach(function(el){
+    el.addEventListener('click',function(){toggleSetting(el.getAttribute('data-toggle'))});
+  });
+  document.querySelectorAll('[data-expand]').forEach(function(el){
+    el.addEventListener('click',function(){toggleExpand(el.getAttribute('data-expand'))});
+  });
+  document.querySelectorAll('[data-tab]').forEach(function(el){
+    el.addEventListener('click',function(){state.activeTab=el.getAttribute('data-tab');render()});
+  });
+  document.querySelectorAll('[data-rec]').forEach(function(el){
+    el.addEventListener('click',function(){state.query=el.getAttribute('data-rec');render()});
+  });
+  document.querySelectorAll('[data-fup]').forEach(function(el){
+    el.addEventListener('click',function(){state.query=el.getAttribute('data-fup');render()});
+  });
+  var heroInput=document.getElementById('hero-input');
+  if(heroInput){
+    heroInput.addEventListener('input',function(){state.query=heroInput.value});
+    heroInput.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();startAnalysis(state.query)}});
+  }
+  var analyzeBtn=document.getElementById('analyze-btn');
+  if(analyzeBtn) analyzeBtn.addEventListener('click',function(){startAnalysis(state.query)});
+  var followUpInput=document.getElementById('follow-up-input');
+  if(followUpInput){
+    followUpInput.addEventListener('input',function(){state.query=followUpInput.value});
+    followUpInput.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();startAnalysis(state.query)}});
+  }
+  var followUpBtn=document.getElementById('follow-up-btn');
+  if(followUpBtn) followUpBtn.addEventListener('click',function(){startAnalysis(state.query)});
+  var loadBtn=document.getElementById('load-example');
+  if(loadBtn) loadBtn.addEventListener('click',loadExampleSession);
+  var loginSubmit=document.getElementById('login-submit');
+  if(loginSubmit) loginSubmit.addEventListener('click',handleLogin);
+  var switchReg=document.getElementById('switch-register');
+  if(switchReg) switchReg.addEventListener('click',function(){state.loginMode='register';state.loginError='';state.loginSuccess='';render()});
+  var switchLog=document.getElementById('switch-login');
+  if(switchLog) switchLog.addEventListener('click',function(){state.loginMode='login';state.loginError='';state.loginSuccess='';render()});
+  var settingsSave=document.getElementById('settings-save');
+  if(settingsSave) settingsSave.addEventListener('click',function(){
+    var rp=document.getElementById('set-riskPref');if(rp) state.settings.riskPref=rp.value;
+    var pp=document.getElementById('set-period');if(pp) state.settings.period=pp.value;
+    state.settingsSaveMsg='设置已保存';render();
+    setTimeout(function(){state.settingsSaveMsg='';render()},2000);
+  });
+  ['login-username','login-email','login-password'].forEach(function(id){
+    var el=document.getElementById(id);
+    if(el) el.addEventListener('input',function(){
+      if(id==='login-username') state.loginForm.username=el.value;
+      else if(id==='login-email') state.loginForm.email=el.value;
+      else state.loginForm.password=el.value;
+    });
+  });
+}
+
+function navigate(page){state.page=page;render()}
+function toggleSetting(key){state.settings[key]=!state.settings[key];if(key==='debugMode') state.debugMode=state.settings[key];render()}
+function toggleExpand(id){state.expandedTurns[id]=!state.expandedTurns[id];render()}
+
+function handleLogin(){
+  state.loginError='';state.loginSuccess='';
+  if(!state.loginForm.username){state.loginError='请输入用户名';render();return}
+  if(!state.loginForm.password){state.loginError='请输入密码';render();return}
+  if(state.loginMode==='register'&&!state.loginForm.email){state.loginError='请输入邮箱';render();return}
+  state.loginSuccess=state.loginMode==='login'?'登录成功, 正在跳转...':'注册成功, 正在跳转...';
+  render();
+  setTimeout(function(){navigate('research')},1200);
+}
+
+/* ── INIT ── */
+render();
+
+})();
+</script>
+</body>
+</html>

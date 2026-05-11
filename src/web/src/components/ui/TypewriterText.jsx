@@ -9,6 +9,11 @@ export default function TypewriterText({ text, speed = 20, className = '', onCom
   const [isComplete, setIsComplete] = useState(false);
   const prevTextRef = useRef('');
   const timerRef = useRef(null);
+  const onCompleteRef = useRef(onComplete);
+
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
 
   useEffect(() => {
     // 如果文本没有变化，不重新执行动画
@@ -16,9 +21,11 @@ export default function TypewriterText({ text, speed = 20, className = '', onCom
     prevTextRef.current = text;
 
     if (!text) {
-      setDisplayedText('');
-      setIsComplete(true);
-      return;
+      const resetTimer = setTimeout(() => {
+        setDisplayedText('');
+        setIsComplete(true);
+      }, 0);
+      return () => clearTimeout(resetTimer);
     }
 
     // 清除之前的定时器
@@ -26,23 +33,26 @@ export default function TypewriterText({ text, speed = 20, className = '', onCom
       clearInterval(timerRef.current);
     }
 
-    setDisplayedText('');
-    setIsComplete(false);
-    let index = 0;
+    const startTimer = setTimeout(() => {
+      setDisplayedText('');
+      setIsComplete(false);
+      let index = 0;
 
-    timerRef.current = setInterval(() => {
-      if (index < text.length) {
-        setDisplayedText(text.substring(0, index + 1));
-        index++;
-      } else {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-        setIsComplete(true);
-        onComplete?.();
-      }
-    }, speed);
+      timerRef.current = setInterval(() => {
+        if (index < text.length) {
+          setDisplayedText(text.substring(0, index + 1));
+          index++;
+        } else {
+          clearInterval(timerRef.current);
+          timerRef.current = null;
+          setIsComplete(true);
+          onCompleteRef.current?.();
+        }
+      }, speed);
+    }, 0);
 
     return () => {
+      clearTimeout(startTimer);
       if (timerRef.current) {
         clearInterval(timerRef.current);
         timerRef.current = null;

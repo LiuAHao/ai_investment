@@ -1,42 +1,180 @@
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+/* V2 Component Styles */
+
+/* Header */
+.v2-header {
+  background: rgba(2, 6, 23, 0.85);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  height: 56px;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
+/* Phase blocks */
+.phase-block {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px 24px;
+  margin-bottom: 16px;
+  transition: all 0.4s ease;
 }
 
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+.phase-block.active {
+  border-color: rgba(220, 38, 38, 0.3);
+  box-shadow: 0 0 20px rgba(220, 38, 38, 0.06);
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
+.phase-block.completed {
+  border-color: var(--border);
 }
 
-.card {
-  padding: 2em;
+/* Serial agent row */
+.serial-agent {
+  flex: 1;
+  min-width: 180px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  position: relative;
+  transition: all 0.3s ease;
 }
 
-.read-the-docs {
-  color: #888;
+.serial-agent.running {
+  border-color: rgba(220, 38, 38, 0.3);
+}
+
+.serial-agent.completed {
+  border-color: rgba(34, 197, 94, 0.15);
+}
+
+/* Tool cards */
+.tool-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  transition: all 0.3s ease;
+}
+
+.tool-card.running {
+  border-color: rgba(220, 38, 38, 0.25);
+  animation: phaseActivate 0.6s ease both;
+}
+
+.tool-card.completed {
+  border-color: rgba(34, 197, 94, 0.15);
+}
+
+/* Agent log lines */
+.agent-log-line {
+  font-size: 11px;
+  font-family: ui-monospace, 'JetBrains Mono', 'IBM Plex Mono', Menlo, monospace;
+  color: var(--text3);
+  padding: 2px 0;
+  animation: logSlide 0.3s ease both;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-log-line::before {
+  content: '\203A ';
+  color: var(--red);
+  opacity: 0.5;
+}
+
+.agent-log-line.done {
+  color: var(--green);
+}
+
+/* Report */
+.report-section {
+  margin-bottom: 24px;
+}
+
+.report-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text2);
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Scenario cards */
+.scenario-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+/* Compliance banner */
+.compliance-banner {
+  display: flex;
+  gap: 10px;
+  padding: 16px;
+  background: rgba(245, 158, 11, 0.06);
+  border: 1px solid rgba(245, 158, 11, 0.15);
+  border-radius: 8px;
+  margin-top: 24px;
+}
+
+/* Toggle switch */
+.toggle {
+  width: 44px;
+  height: 24px;
+  border-radius: 12px;
+  position: relative;
+  transition: background 0.2s;
+  background: var(--card2);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.toggle.on {
+  background: var(--red);
+}
+
+.toggle-knob {
+  width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  background: #fff;
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  transition: left 0.2s;
+}
+
+.toggle.on .toggle-knob {
+  left: 22px;
+}
+
+/* Tag */
+.v2-tag {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(220, 38, 38, 0.1);
+  color: var(--red);
+  font-weight: 500;
+}
+
+/* History card */
+.history-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.history-card:hover {
+  border-color: var(--border2);
 }

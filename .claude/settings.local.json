@@ -2,7 +2,14 @@
   "permissions": {
     "allow": [
       "Bash(python:*)",
-      "Bash(set:*)"
+      "Bash(set:*)",
+      "Bash(npm run *)",
+      "Bash(claude /plugin marketplace add anthropics/skills)",
+      "Read(//Users/a0000/.claude/plugins/**)",
+      "Read(//Users/a0000/.claude/skills/**)",
+      "Read(//Users/a0000/.claude/**)",
+      "Bash(claude --version)",
+      "Bash(claude --no-input)"
     ],
     "deny": [],
     "ask": []
