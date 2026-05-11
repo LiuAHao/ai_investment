@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowRight, Mail, Phone, Lock, User, Crown, Zap, Shield, Star } from 'lucide-react';
-import { updatePassword, updatePhone, updateProfile, fetchQuota, fetchTiers, upgradeTier } from '../../services/apiClient';
+import { updatePassword, updatePhone, updateProfile, getQuota, getTiers, upgradeTier } from '../../services/apiClient';
 
 const ProfileView = ({ setViewState, user, onProfileUpdated }) => {
   const [isEditing, setIsEditing] = useState(false);
@@ -14,7 +14,6 @@ const ProfileView = ({ setViewState, user, onProfileUpdated }) => {
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [quotaData, setQuotaData] = useState(null);
-  const [tiersData, setTiersData] = useState([]);
   const [isUpgrading, setIsUpgrading] = useState(false);
   const [upgradeMsg, setUpgradeMsg] = useState('');
   const nicknameRef = useRef(null);
@@ -27,19 +26,21 @@ const ProfileView = ({ setViewState, user, onProfileUpdated }) => {
     : '—';
 
   useEffect(() => {
-    setNickname(user?.nickname || '');
-    setEmail(user?.email || '');
-    setPhone(user?.phone || '');
+    const timer = window.setTimeout(() => {
+      setNickname(user?.nickname || '');
+      setEmail(user?.email || '');
+      setPhone(user?.phone || '');
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [user]);
 
   // 加载配额和等级信息
   useEffect(() => {
     const loadTierData = async () => {
       try {
-        const [q, t] = await Promise.all([fetchQuota(), fetchTiers()]);
+        const [q] = await Promise.all([getQuota(), getTiers()]);
         setQuotaData(q);
-        setTiersData(t?.tiers || []);
-      } catch (err) {
+      } catch {
         // 静默失败，不影响主要功能
       }
     };
@@ -98,7 +99,7 @@ const ProfileView = ({ setViewState, user, onProfileUpdated }) => {
         onProfileUpdated({ ...user, user_tier: tier });
       }
       // 刷新配额
-      const q = await fetchQuota();
+      const q = await getQuota();
       setQuotaData(q);
     } catch (err) {
       setUpgradeMsg(err?.message || '升级失败');

@@ -1,32 +1,34 @@
 import React, { useState } from 'react';
-import { TrendingUp, Mail, Lock, User, ArrowRight, Loader2, ArrowLeft } from 'lucide-react';
-import { loginUser, registerUser } from '../../services/apiClient';
+import { login, register } from '../../services/apiClient';
 
 const AuthView = ({ viewState, setViewState, onAuthSuccess }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
   const isLogin = viewState === 'login';
-  const isRegister = viewState === 'register';
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
+    setSuccess('');
 
     try {
       if (isLogin) {
-        const result = await loginUser(username, password);
+        const result = await login(username, password);
+        setSuccess('登录成功, 正在跳转...');
         if (onAuthSuccess) {
-          await onAuthSuccess(result.token);
+          setTimeout(() => onAuthSuccess(result.token), 1200);
         }
       } else {
-        const result = await registerUser(username, email, password, username);
+        const result = await register(username, password, email);
+        setSuccess('注册成功, 正在跳转...');
         if (onAuthSuccess) {
-          await onAuthSuccess(result.token);
+          setTimeout(() => onAuthSuccess(result.token), 1200);
         }
       }
     } catch (err) {
@@ -37,120 +39,137 @@ const AuthView = ({ viewState, setViewState, onAuthSuccess }) => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 py-12 relative z-10">
-      <div className="w-full max-w-md bg-slate-900/60 backdrop-blur-xl border border-white/10 p-8 rounded-3xl shadow-2xl animate-in fade-in zoom-in-95 duration-500 relative">
-        
-        {/* Back Button */}
-        <button 
-          onClick={() => setViewState('landing')}
-          className="absolute left-6 top-6 p-2 text-slate-400 hover:text-white transition-colors rounded-full hover:bg-white/5"
-          aria-label="返回首页"
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </button>
+    <div style={{
+      minHeight: '100vh',
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center',
+      background: 'var(--bg)',
+    }}>
+      <div style={{
+        background: 'var(--card)',
+        border: '1px solid var(--border)',
+        borderRadius: 12,
+        padding: '40px 36px',
+        width: '100%',
+        maxWidth: 400,
+      }}>
+        <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 8, textAlign: 'center' }}>
+          {isLogin ? '登录' : '注册'}
+        </h2>
+        <p style={{ fontSize: 13, color: 'var(--text3)', textAlign: 'center', marginBottom: 32 }}>
+          {isLogin ? '登录后开始 AI 投资研究' : '创建账户, 开始智能投资分析'}
+        </p>
 
-        {/* Header */}
-        <div className="text-center mb-8 mt-4">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-red-500 to-orange-600 flex items-center justify-center shadow-lg shadow-red-500/20 mx-auto mb-4">
-            <TrendingUp className="text-white w-7 h-7" />
+        <form onSubmit={handleSubmit}>
+          <div style={{ marginBottom: 20 }}>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: 'var(--text2)', marginBottom: 6 }}>
+              用户名
+            </label>
+            <input
+              type="text"
+              value={username}
+              onChange={e => setUsername(e.target.value)}
+              placeholder="请输入用户名"
+              style={{ width: '100%' }}
+              required
+            />
           </div>
-          <h2 className="text-2xl font-bold text-white mb-2">
-            {isLogin ? '欢迎回来' : '创建新账户'}
-          </h2>
-          <p className="text-slate-400 text-sm">
-            {isLogin ? '登录以继续您的投资之旅' : '加入数万名智能投资者的行列'}
-          </p>
-        </div>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-slate-300 ml-1">用户名</label>
-            <div className="relative">
-              <input 
-                type="text" 
-                placeholder="请输入用户名"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="w-full bg-slate-800/50 border border-slate-700 text-white rounded-xl px-4 py-3 pl-10 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-colors"
+          {!isLogin && (
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: 'var(--text2)', marginBottom: 6 }}>
+                邮箱
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="请输入邮箱"
+                style={{ width: '100%' }}
                 required
               />
-              <User className="w-4 h-4 text-slate-500 absolute left-3 top-3.5" />
-            </div>
-          </div>
-
-          {isRegister && (
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-300 ml-1">电子邮箱</label>
-              <div className="relative">
-                <input 
-                  type="email" 
-                  placeholder="name@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full bg-slate-800/50 border border-slate-700 text-white rounded-xl px-4 py-3 pl-10 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-colors"
-                  required
-                />
-                <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-3.5" />
-              </div>
             </div>
           )}
 
-          <div className="space-y-1">
-            <div className="flex justify-between items-center ml-1">
-                <label className="text-xs font-medium text-slate-300">密码</label>
-            </div>
-            <div className="relative">
-              <input 
-                type="password" 
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-slate-800/50 border border-slate-700 text-white rounded-xl px-4 py-3 pl-10 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-colors"
-                required
-              />
-              <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-3.5" />
-            </div>
+          <div style={{ marginBottom: 20 }}>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: 'var(--text2)', marginBottom: 6 }}>
+              密码
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              placeholder="请输入密码"
+              style={{ width: '100%' }}
+              required
+            />
           </div>
 
           {error && (
-            <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">
+            <div style={{
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.2)',
+              borderRadius: 8,
+              padding: '10px 14px',
+              color: 'var(--red-bright)',
+              fontSize: 13,
+              marginBottom: 16,
+            }}>
               {error}
             </div>
           )}
 
-          <button 
-            type="submit" 
+          {success && (
+            <div style={{
+              background: 'rgba(34, 197, 94, 0.1)',
+              border: '1px solid rgba(34, 197, 94, 0.2)',
+              borderRadius: 8,
+              padding: '10px 14px',
+              color: 'var(--green)',
+              fontSize: 13,
+              marginBottom: 16,
+            }}>
+              {success}
+            </div>
+          )}
+
+          <button
+            type="submit"
             disabled={isLoading}
-            className="w-full bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-red-500/25 transition-all mt-6 flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+            style={{
+              width: '100%', padding: 12, borderRadius: 8, fontSize: 15, fontWeight: 600,
+              background: 'linear-gradient(135deg, var(--red), var(--orange))', color: '#fff',
+              marginTop: 8, opacity: isLoading ? 0.7 : 1,
+            }}
           >
-            {isLoading ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                正在处理...
-              </>
-            ) : (
-              <>
-                {isLogin ? '登录' : '立即注册'}
-                <ArrowRight className="w-4 h-4" />
-              </>
-            )}
+            {isLoading ? '正在处理...' : (isLogin ? '登录' : '注册')}
           </button>
         </form>
 
-        {/* Footer */}
-        <div className="mt-8 text-center">
-          <p className="text-sm text-slate-400">
-            {isLogin ? '还没有账号?' : '已有账号?'}
-            <button 
-              onClick={() => setViewState(isLogin ? 'register' : 'login')}
-              className="ml-2 text-white font-medium hover:text-red-400 transition-colors underline decoration-slate-600 underline-offset-4"
-            >
-              {isLogin ? '免费注册' : '立即登录'}
-            </button>
-          </p>
+        <div style={{ textAlign: 'center', marginTop: 20, fontSize: 13, color: 'var(--text3)' }}>
+          {isLogin ? (
+            <span>
+              没有账户?{' '}
+              <button
+                onClick={() => { setViewState('register'); setError(''); setSuccess(''); }}
+                style={{ background: 'none', color: 'var(--red)', fontSize: 13, fontWeight: 500 }}
+              >
+                立即注册
+              </button>
+            </span>
+          ) : (
+            <span>
+              已有账户?{' '}
+              <button
+                onClick={() => { setViewState('login'); setError(''); setSuccess(''); }}
+                style={{ background: 'none', color: 'var(--red)', fontSize: 13, fontWeight: 500 }}
+              >
+                去登录
+              </button>
+            </span>
+          )}
         </div>
-
       </div>
     </div>
   );
