@@ -1,13 +1,13 @@
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001'}/api`;
 
-let authToken = localStorage.getItem('authToken') || '';
+let authToken = localStorage.getItem('auth_token') || '';
 
 export const setAuthToken = (token) => {
   authToken = token;
   if (token) {
-    localStorage.setItem('authToken', token);
+    localStorage.setItem('auth_token', token);
   } else {
-    localStorage.removeItem('authToken');
+    localStorage.removeItem('auth_token');
   }
 };
 

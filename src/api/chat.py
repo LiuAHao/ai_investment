@@ -128,15 +128,37 @@ def sessions():
                 .all()
             )
 
-            sessions_data = [
-                {
-                    "session_id": session.session_id,
-                    "last_message_time": session.last_message_time.isoformat()
-                    if session.last_message_time
-                    else None,
-                }
-                for session in sessions
-            ]
+            sessions_data = []
+            for session in sessions:
+                first_user_message = (
+                    db.query(ChatHistory)
+                    .filter_by(
+                        user_id=user.id,
+                        session_id=session.session_id,
+                        role="user",
+                    )
+                    .order_by(ChatHistory.created_at.asc())
+                    .first()
+                )
+                first_message = first_user_message or (
+                    db.query(ChatHistory)
+                    .filter_by(user_id=user.id, session_id=session.session_id)
+                    .order_by(ChatHistory.created_at.asc())
+                    .first()
+                )
+
+                sessions_data.append(
+                    {
+                        "session_id": session.session_id,
+                        "query": first_message.content if first_message else "",
+                        "created_at": first_message.created_at.isoformat()
+                        if first_message and first_message.created_at
+                        else None,
+                        "last_message_time": session.last_message_time.isoformat()
+                        if session.last_message_time
+                        else None,
+                    }
+                )
 
             return jsonify({"sessions": sessions_data}), 200
 

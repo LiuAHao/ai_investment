@@ -13,7 +13,7 @@ import json
 import time
 
 # 默认端口，可通过环境变量覆盖
-PORT = os.getenv("FLASK_PORT", "5002")
+PORT = os.getenv("FLASK_PORT", "5001")
 FRONTEND_PORT = os.getenv("VITE_PORT", "5173")
 BASE_URL = f"http://localhost:{PORT}"
 FRONTEND_URL = f"http://localhost:{FRONTEND_PORT}"

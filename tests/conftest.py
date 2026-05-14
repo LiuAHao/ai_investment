@@ -5,11 +5,13 @@
 pytest配置文件
 """
 
+import os
 import pytest
 import requests
 import time
 
-BASE_URL = "http://localhost:5000"
+PORT = os.getenv("FLASK_PORT", "5001")
+BASE_URL = f"http://localhost:{PORT}"
 FRONTEND_URL = "http://localhost:5173"
 
 @pytest.fixture(scope="session")

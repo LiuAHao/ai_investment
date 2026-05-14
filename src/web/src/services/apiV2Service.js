@@ -6,7 +6,7 @@
 import { getAuthToken } from './apiClient';
 
 const API_BASE = '/api/agent/v2';
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001';
 
 async function apiRequest(path, options = {}) {
   const token = getAuthToken();

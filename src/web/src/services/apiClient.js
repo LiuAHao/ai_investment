@@ -3,7 +3,7 @@
  * 封装 fetch 请求，自动附加 JWT token
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001';
 
 let authToken = localStorage.getItem('auth_token');
 let feedbackHandler = null;

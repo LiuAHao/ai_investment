@@ -4,6 +4,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { MessageSquare, Plus, Clock } from 'lucide-react';
+import { getChatSessions } from '../../services/apiClient';
 
 const SessionList = ({ currentSession, onSessionSelect }) => {
   const [sessions, setSessions] = useState([]);
@@ -12,16 +13,8 @@ const SessionList = ({ currentSession, onSessionSelect }) => {
   const loadSessions = useCallback(async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch('/api/chat/sessions', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setSessions(data.sessions || []);
-      }
+      const data = await getChatSessions();
+      setSessions(data.sessions || []);
     } catch (error) {
       console.error('Load sessions failed:', error);
     } finally {

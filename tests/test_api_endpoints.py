@@ -4,16 +4,17 @@
 """
 API端点测试
 注意：运行测试前需要先启动后端服务
-如果5000端口被占用，可以设置环境变量 FLASK_PORT 指定其他端口
+如果默认端口被占用，可以设置环境变量 FLASK_PORT 指定其他端口
 """
 
 import os
 import requests
 import pytest
 import json
+import time
 
 # 默认端口，可通过环境变量覆盖
-PORT = os.getenv("FLASK_PORT", "5002")
+PORT = os.getenv("FLASK_PORT", "5001")
 BASE_URL = f"http://localhost:{PORT}"
 
 class TestHealthEndpoints:
@@ -75,6 +76,45 @@ class TestNewsEndpoints:
         """测试获取新闻标题"""
         response = requests.get(f"{BASE_URL}/api/news/titles")
         assert response.status_code in [200, 401]
+
+
+class TestChatEndpoints:
+    """聊天端点测试"""
+
+    def test_chat_sessions_include_query_and_created_at(self, auth_headers):
+        """测试会话列表返回前端依赖的核心字段"""
+        timestamp = int(time.time())
+        session_id = f"test-session-{timestamp}"
+        message_content = f"测试会话列表字段契约-{timestamp}"
+        send_response = requests.post(
+            f"{BASE_URL}/api/chat/send",
+            json={
+                "content": message_content,
+                "session_id": session_id,
+                "role": "user",
+            },
+            headers=auth_headers,
+        )
+
+        assert send_response.status_code == 201
+
+        sessions_response = requests.get(
+            f"{BASE_URL}/api/chat/sessions",
+            headers=auth_headers,
+        )
+
+        assert sessions_response.status_code == 200
+
+        sessions = sessions_response.json()["sessions"]
+        target_session = next(
+            session for session in sessions if session["session_id"] == session_id
+        )
+
+        assert "session_id" in target_session
+        assert "query" in target_session
+        assert "created_at" in target_session
+        assert target_session["query"] == message_content
+        assert target_session["created_at"]
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

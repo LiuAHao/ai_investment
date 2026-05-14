@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getAuthToken } from '../../services/apiClient';
+import { getAuthToken, getChatSessions } from '../../services/apiClient';
 
 const HistoryView = ({ onNavigate }) => {
   const [sessions, setSessions] = useState([]);
@@ -12,14 +12,8 @@ const HistoryView = ({ onNavigate }) => {
         return;
       }
       try {
-        const token = localStorage.getItem('token');
-        const response = await fetch('/api/chat/sessions', {
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setSessions(data.sessions || []);
-        }
+        const data = await getChatSessions();
+        setSessions(data.sessions || []);
       } catch {
         setSessions([]);
       } finally {

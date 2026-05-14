@@ -5,7 +5,7 @@
 数据库初始化
 """
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy.pool import QueuePool, StaticPool
 from models.database import Base
@@ -40,6 +40,19 @@ SessionLocal = scoped_session(sessionmaker(autocommit=False, autoflush=False, bi
 def init_db():
     """初始化数据库表"""
     Base.metadata.create_all(bind=engine)
+
+    inspector = inspect(engine)
+    if "users" not in inspector.get_table_names():
+        return
+
+    user_columns = {column["name"] for column in inspector.get_columns("users")}
+    if "user_tier" in user_columns:
+        return
+
+    with engine.begin() as connection:
+        connection.execute(
+            text("ALTER TABLE users ADD COLUMN user_tier VARCHAR(20) NOT NULL DEFAULT 'free'")
+        )
 
 
 @contextmanager
