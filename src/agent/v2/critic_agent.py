@@ -13,6 +13,7 @@ import re
 from typing import Any, Dict, List
 
 from agent.v2.state import EvidenceItem, EvidenceType, InvestmentState
+from services.task_service import TaskService
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,12 @@ def critic_check(state: InvestmentState) -> Dict[str, Any]:
         "output_summary": f"score={score:.2f}, needs_revision={needs_revision}, issues={len(issues)}",
         "latency_ms": 0,
     }]
+
+    TaskService.emit_event(state.task_id, "critic_completed", {
+        "passed": not needs_revision,
+        "score": int(score * 100),
+        "issues": issues,
+    })
 
     return {
         "critic_score": score,

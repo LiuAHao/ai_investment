@@ -355,4 +355,6 @@ if __name__ == "__main__":
     app = create_app()
     debug_mode = os.getenv("FLASK_DEBUG", "1") == "1"
     use_reloader = os.getenv("FLASK_USE_RELOADER", "0") == "1"
-    app.run(host="0.0.0.0", port=5001, debug=debug_mode, use_reloader=use_reloader)
+    port = int(os.getenv("FLASK_PORT") or os.getenv("PORT") or "5001")
+    logger.info("启动 Flask API: port=%s, v2_enabled=%s", port, V2_ENABLED)
+    app.run(host="0.0.0.0", port=port, debug=debug_mode, use_reloader=use_reloader)

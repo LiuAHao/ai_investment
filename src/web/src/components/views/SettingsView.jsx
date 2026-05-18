@@ -9,16 +9,12 @@ const SettingsView = () => {
     defaultV2: true,
     notifications: true,
   });
-  const [saveMsg, setSaveMsg] = useState('');
 
   const toggle = (key) => {
     setSettings(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const handleSave = () => {
-    setSaveMsg('设置已保存');
-    setTimeout(() => setSaveMsg(''), 2000);
-  };
+  const handleSave = () => {};
 
   return (
     <div>
@@ -107,9 +103,6 @@ const SettingsView = () => {
         >
           保存设置
         </button>
-        {saveMsg && (
-          <span style={{ color: 'var(--green)', marginLeft: 16, fontSize: 14 }}>{saveMsg}</span>
-        )}
       </div>
     </div>
   );

@@ -13,6 +13,7 @@ import re
 from typing import Any, Dict, List
 
 from agent.v2.state import InvestmentState
+from services.task_service import TaskService
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +103,11 @@ def compliance_check(state: InvestmentState) -> Dict[str, Any]:
         "output_summary": f"passed={passed}, issues={len(issues)}",
         "latency_ms": 0,
     }]
+
+    TaskService.emit_event(state.task_id, "compliance_completed", {
+        "passed": passed,
+        "issues": issues,
+    })
 
     output = {
         "compliance_passed": passed,

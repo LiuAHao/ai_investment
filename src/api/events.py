@@ -119,11 +119,38 @@ def stream_events(task_id: str):
         q = event_bus.subscribe(task_id)
         try:
             yield f"event: connected\ndata: {json.dumps({'task_id': task_id})}\n\n"
+
+            if task.status in ("processing", "completed", "failed", "timeout"):
+                snapshot = {
+                    "type": "task_started",
+                    "task_id": task_id,
+                    "timestamp": time.time(),
+                    "data": {
+                        "task_id": task.task_id,
+                        "session_id": task.session_id,
+                        "status": task.status,
+                    },
+                }
+                yield f"event: task_started\ndata: {json.dumps(snapshot, ensure_ascii=False, default=str)}\n\n"
+
+            if task.status == "completed" and task.result:
+                completed_snapshot = {
+                    "type": "task_completed",
+                    "task_id": task_id,
+                    "timestamp": time.time(),
+                    "data": {
+                        "task_id": task.task_id,
+                        "session_id": task.session_id,
+                        "result": task.result,
+                    },
+                }
+                yield f"event: task_completed\ndata: {json.dumps(completed_snapshot, ensure_ascii=False, default=str)}\n\n"
+                return
             
             while True:
                 try:
                     event = q.get(timeout=30)
-                    event_json = json.dumps(event, ensure_ascii=False)
+                    event_json = json.dumps(event, ensure_ascii=False, default=str)
                     yield f"event: {event['type']}\ndata: {event_json}\n\n"
                     
                     if event['type'] in ('task_completed', 'task_failed'):

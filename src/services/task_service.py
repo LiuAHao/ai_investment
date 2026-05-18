@@ -52,6 +52,13 @@ class TaskService:
     _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="v2_task")
 
     @classmethod
+    def emit_event(cls, task_id: Optional[str], event_type: str, data: Dict[str, Any] = None) -> None:
+        """公开任务事件发送接口"""
+        if not task_id:
+            return
+        _emit_task_event(task_id, event_type, data or {})
+
+    @classmethod
     def create_task(cls, session_id: str, user_id: int) -> str:
         """创建任务"""
         import uuid
@@ -142,7 +149,7 @@ class TaskService:
             task.progress = progress
             if node:
                 task.current_node = node
-                _emit_task_event(task_id, "node_completed", {
+                cls.emit_event(task_id, "node_completed", {
                     "node": node,
                     "progress": progress,
                 })

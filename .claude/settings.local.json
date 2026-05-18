@@ -1,7 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python:*)",
+      "Bash(python *)",
       "Bash(set:*)",
       "Bash(npm run *)",
       "Bash(claude /plugin marketplace add anthropics/skills)",
@@ -11,7 +11,16 @@
       "Bash(claude --version)",
       "Bash(claude --no-input)",
       "Bash(git -C /Users/a0000/Desktop/项目文件/ai_investment status --short ai_investment.db)",
-      "Bash(git rm *)"
+      "Bash(git rm *)",
+      "Bash(PYTHONPATH=\"/Users/a0000/Desktop/项目文件/ai_investment/src\" AGENT_V2_ENABLED=true FLASK_DEBUG=0 FLASK_USE_RELOADER=0 python *)",
+      "Bash(localhost:5173)",
+      "Bash(frontend_url)",
+      "Bash(sync_playwright)",
+      "Bash(async_playwright)",
+      "Bash(get_by_role\\\\\\()",
+      "Bash(wait_for_load_state\\\\\\()",
+      "Bash(wait_for\\\\\\(state='visible')",
+      "Bash(locator\\\\\\('button|textarea\\\\\\)|page\\\\.goto\\\\\\(\" \"/Users/a0000/Desktop/项目文件/ai_investment/tests\")"
     ],
     "deny": [],
     "ask": []

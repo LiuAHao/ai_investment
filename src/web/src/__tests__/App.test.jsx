@@ -40,7 +40,7 @@ describe('App Component', () => {
     fireEvent.click(researchBtn);
     
     // 检查是否跳转到研究页面
-    const textarea = screen.getByPlaceholderText(/输入你想研究的投资问题/i);
+    const textarea = screen.getByPlaceholderText('输入你想研究的投资问题');
     expect(textarea).toBeInTheDocument();
   });
 });

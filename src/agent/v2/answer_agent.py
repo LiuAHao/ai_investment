@@ -17,6 +17,7 @@ from agent.v2.state import (
     InvestmentAnswer,
     InvestmentState,
 )
+from services.task_service import TaskService
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,10 @@ def draft_answer(state: InvestmentState) -> Dict[str, Any]:
         "output_summary": f"draft_length={len(draft)}",
         "latency_ms": 0,
     }]
+
+    TaskService.emit_event(state.task_id, "draft_created", {
+        "summary": draft,
+    })
 
     return {
         "draft_answer": draft,
@@ -177,22 +182,22 @@ def _extract_key_points(evidence: List[EvidenceItem]) -> List[str]:
     return key_points
 
 
-def _generate_scenarios(evidence: List[EvidenceItem], assets: list) -> Dict[str, str]:
+def _generate_scenarios(evidence: List[EvidenceItem], assets: list) -> List[Dict[str, Any]]:
     """生成情景分析"""
-    scenarios = {
-        "乐观情景": "若市场环境向好，资产可能出现上涨。",
-        "中性情景": "维持当前趋势，波动在正常范围内。",
-        "悲观情景": "若风险因素显现，资产可能面临下行压力。",
-    }
-    
+    scenarios = [
+        {"name": "乐观情景", "probability": 30, "content": "若市场环境向好，资产可能出现上涨。"},
+        {"name": "中性情景", "probability": 40, "content": "维持当前趋势，波动在正常范围内。"},
+        {"name": "悲观情景", "probability": 30, "content": "若风险因素显现，资产可能面临下行压力。"},
+    ]
+
     positive_evidence = [e for e in evidence if e.polarity == "positive"]
     negative_evidence = [e for e in evidence if e.polarity == "negative"]
-    
+
     if positive_evidence:
-        scenarios["乐观情景"] = f"基于 {len(positive_evidence)} 条积极信号，存在上行机会。"
+        scenarios[0]["content"] = f"基于 {len(positive_evidence)} 条积极信号，存在上行机会。"
     if negative_evidence:
-        scenarios["悲观情景"] = f"基于 {len(negative_evidence)} 条风险信号，需关注下行风险。"
-    
+        scenarios[2]["content"] = f"基于 {len(negative_evidence)} 条风险信号，需关注下行风险。"
+
     return scenarios
 
 
@@ -282,8 +287,8 @@ def _format_answer(answer: InvestmentAnswer) -> str:
     
     if answer.scenarios:
         parts.append("\n**情景分析**")
-        for scenario, desc in answer.scenarios.items():
-            parts.append(f"- {scenario}：{desc}")
+        for scenario in answer.scenarios:
+            parts.append(f"- {scenario.get('name', '情景')}：{scenario.get('content', '')}")
     
     if answer.risks:
         parts.append("\n**主要风险**")

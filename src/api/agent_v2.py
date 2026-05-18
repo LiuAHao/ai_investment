@@ -24,6 +24,18 @@ agent_v2_bp = Blueprint("agent_v2", __name__)
 MAX_QUERY_LENGTH = 2000
 
 
+def _normalize_preferences(preferences: dict | None) -> dict:
+    preferences = preferences or {}
+    debug_mode = preferences.get("debug_mode", preferences.get("debugMode", False))
+    risk_preference = preferences.get("risk_preference", preferences.get("riskPref"))
+    investment_horizon = preferences.get("investment_horizon", preferences.get("period"))
+    return {
+        "debug_mode": bool(debug_mode),
+        "risk_preference": risk_preference,
+        "investment_horizon": investment_horizon,
+    }
+
+
 @agent_v2_bp.route("/query", methods=["POST"])
 def query():
     """
@@ -55,7 +67,7 @@ def query():
 
     query_text = payload.query.strip()
     session_id = payload.session_id
-    preferences = payload.preferences
+    preferences = _normalize_preferences(payload.preferences)
 
     if not query_text:
         return jsonify({"error": "缺少查询内容"}), 400
@@ -91,22 +103,24 @@ def query():
 
         def execute_v2():
             from agent.v2.graph import run_v2_query
-            
+
             chat_history = []
             user_profile = {
                 "id": user.id,
                 "username": user.username,
-                "risk_preference": preferences.get("risk_preference"),
                 "debug_mode": preferences.get("debug_mode", False),
+                "risk_preference": preferences.get("risk_preference"),
+                "investment_horizon": preferences.get("investment_horizon"),
                 "preferences": preferences,
             }
-            
+
             result = run_v2_query(
                 session_id=session_id,
                 user_id=user.id,
                 query=query_text,
                 chat_history=chat_history,
                 user_profile=user_profile,
+                task_id=task_id,
             )
             return result
 

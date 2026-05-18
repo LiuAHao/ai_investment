@@ -27,6 +27,9 @@ export function setAuthToken(token) {
 
 async function request(path, options = {}) {
   const url = `${API_BASE_URL}${path}`;
+  const body = options.body && typeof options.body === 'object'
+    ? JSON.stringify(options.body)
+    : options.body;
   const headers = {
     'Content-Type': 'application/json',
     ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
@@ -43,6 +46,7 @@ async function request(path, options = {}) {
     const response = await fetch(url, {
       ...options,
       headers,
+      body,
     });
 
     const data = await response.json().catch(() => ({}));

@@ -2,118 +2,87 @@
 # -*- coding: utf-8 -*-
 
 """
-前端组件测试
-使用Playwright进行端到端测试
+前端组件 smoke 测试
+要求本地前端开发服务器已启动。
 """
 
+import os
+
 import pytest
-import asyncio
-from playwright.async_api import async_playwright, expect
+from playwright.sync_api import expect
 
-@pytest.fixture
-def browser():
-    """浏览器fixture"""
-    async def _browser():
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            yield browser
-            await browser.close()
-    return asyncio.get_event_loop().run_until_complete(_browser())
 
-@pytest.fixture
-def page(browser):
-    """页面fixture"""
-    async def _page():
-        context = await browser.new_context()
-        page = await context.new_page()
-        yield page
-        await context.close()
-    return asyncio.get_event_loop().run_until_complete(_page())
+pytestmark = pytest.mark.smoke
+
+FRONTEND_PORT = os.getenv("VITE_PORT", "5173")
+FRONTEND_URL = f"http://localhost:{FRONTEND_PORT}"
+
 
 class TestHomePage:
     """首页测试"""
-    
-    @pytest.mark.asyncio
-    async def test_home_page_loads(self, page):
-        """测试首页加载"""
-        await page.goto('http://localhost:5173')
-        
-        # 检查页面标题
-        title = await page.title()
-        assert 'AI投资分析' in title or 'AI Investment' in title
-        
-        # 检查主要元素存在
-        hero_text = await page.locator('h1').first.text_content()
-        assert '你想研究什么' in hero_text or '研究' in hero_text
-    
-    @pytest.mark.asyncio
-    async def test_navigation_buttons(self, page):
-        """测试导航按钮"""
-        await page.goto('http://localhost:5173')
-        
-        # 检查导航按钮存在
-        research_btn = page.locator('button:has-text("研究")')
-        await expect(research_btn).to_be_visible()
-        
-        history_btn = page.locator('button:has-text("历史")')
-        await expect(history_btn).to_be_visible()
-        
-        settings_btn = page.locator('button:has-text("设置")')
-        await expect(settings_btn).to_be_visible()
+
+    def test_home_page_loads(self, page):
+        """首页应能加载并展示产品标题"""
+        page.goto(FRONTEND_URL)
+        page.wait_for_load_state("networkidle")
+
+        expect(page.locator("body")).to_be_visible()
+        expect(page.locator("text=AI 投资研究").first).to_be_visible()
+
+    def test_navigation_buttons(self, page):
+        """首页应展示主要导航入口"""
+        page.goto(FRONTEND_URL)
+        page.wait_for_load_state("networkidle")
+
+        expect(page.get_by_role("button", name="研究", exact=True)).to_be_visible()
+        expect(page.get_by_role("button", name="历史")).to_be_visible()
+        expect(page.get_by_role("button", name="设置")).to_be_visible()
+
 
 class TestResearchPage:
     """研究页面测试"""
-    
-    @pytest.mark.asyncio
-    async def test_research_page_loads(self, page):
-        """测试研究页面加载"""
-        await page.goto('http://localhost:5173')
-        
-        # 点击研究按钮
-        await page.click('button:has-text("研究")')
-        
-        # 检查页面跳转
-        await page.wait_for_url('**/research')
-        
-        # 检查研究页面元素
-        textarea = page.locator('textarea')
-        await expect(textarea).to_be_visible()
-        
-        analyze_btn = page.locator('button:has-text("开始分析")')
-        await expect(analyze_btn).to_be_visible()
-    
-    @pytest.mark.asyncio
-    async def test_recommended_questions(self, page):
-        """测试推荐问题"""
-        await page.goto('http://localhost:5173')
-        
-        # 点击研究按钮
-        await page.click('button:has-text("研究")')
-        
-        # 检查推荐问题存在
-        recommended = page.locator('text=分析宁德时代未来三个月的风险')
-        await expect(recommended).to_be_visible()
 
-class TestFeedbackSystem:
-    """反馈系统测试"""
-    
-    @pytest.mark.asyncio
-    async def test_toast_notification(self, page):
-        """测试Toast通知"""
-        await page.goto('http://localhost:5173')
-        
-        # 模拟触发Toast通知的操作
-        # 这里需要根据实际的触发条件来编写测试
-        pass
-    
-    @pytest.mark.asyncio
-    async def test_loading_state(self, page):
-        """测试加载状态"""
-        await page.goto('http://localhost:5173')
-        
-        # 模拟触发加载状态的操作
-        # 这里需要根据实际的触发条件来编写测试
-        pass
+    def test_research_page_loads(self, page):
+        """点击研究入口后应展示研究输入框"""
+        page.goto(FRONTEND_URL)
+        page.wait_for_load_state("networkidle")
 
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+        page.get_by_role("button", name="研究", exact=True).click()
+
+        expect(page.get_by_placeholder("输入你想研究的投资问题, 例如: 分析宁德时代未来三个月的风险")).to_be_visible()
+        expect(page.get_by_role("button", name="开始分析")).to_be_visible()
+
+    def test_recommended_questions(self, page):
+        """研究页应展示推荐问题"""
+        page.goto(FRONTEND_URL)
+        page.wait_for_load_state("networkidle")
+
+        page.get_by_role("button", name="研究", exact=True).click()
+
+        expect(page.get_by_text("分析宁德时代未来三个月的风险")).to_be_visible()
+
+
+class TestAuthPage:
+    """认证页面测试"""
+
+    def test_register_form_contains_required_fields(self, page):
+        """注册页应展示用户名、邮箱和密码字段"""
+        page.goto(FRONTEND_URL)
+        page.wait_for_load_state("networkidle")
+
+        page.get_by_role("button", name="注册 / 登录").click()
+        page.get_by_role("button", name="立即注册").click()
+
+        expect(page.get_by_placeholder("请输入用户名")).to_be_visible()
+        expect(page.get_by_placeholder("请输入邮箱")).to_be_visible()
+        expect(page.get_by_placeholder("请输入密码")).to_be_visible()
+
+    def test_login_form_contains_required_fields(self, page):
+        """登录页应展示用户名和密码字段"""
+        page.goto(FRONTEND_URL)
+        page.wait_for_load_state("networkidle")
+
+        page.get_by_role("button", name="注册 / 登录").click()
+
+        expect(page.get_by_placeholder("请输入用户名")).to_be_visible()
+        expect(page.get_by_placeholder("请输入密码")).to_be_visible()

@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from typing import Any, Dict, List
 
 from agent.v2.state import InvestmentState, ToolResult
+from services.task_service import TaskService
 
 logger = logging.getLogger(__name__)
 
@@ -59,15 +60,13 @@ def execute_tools(state: InvestmentState) -> Dict[str, Any]:
         with ThreadPoolExecutor(max_workers=4, thread_name_prefix="v2_tool") as pool:
             futures = {}
             for step in independent_steps:
-                future = pool.submit(_execute_single_tool, registry, step.tool_name, step.params)
+                future = pool.submit(_execute_step, state, registry, step)
                 futures[future] = step
 
             for future, step in futures.items():
                 step = futures[future]
                 try:
                     result = future.result(timeout=step.timeout or TOOL_TIMEOUT)
-                    result.step_id = step.step_id
-                    _attach_asset_id(result, step.params, state)
                     results.append(result)
                 except TimeoutError:
                     failed = ToolResult(
@@ -77,6 +76,15 @@ def execute_tools(state: InvestmentState) -> Dict[str, Any]:
                         step_id=step.step_id,
                     )
                     _attach_asset_id(failed, step.params, state)
+                    TaskService.emit_event(state.task_id, "tool_completed", {
+                        "tool_name": step.tool_name,
+                        "step_id": step.step_id,
+                        "status": failed.status,
+                        "latency_ms": failed.latency_ms,
+                        "result": {
+                            "summary": failed.error,
+                        },
+                    })
                     results.append(failed)
                 except Exception as e:
                     failed = ToolResult(
@@ -86,6 +94,15 @@ def execute_tools(state: InvestmentState) -> Dict[str, Any]:
                         step_id=step.step_id,
                     )
                     _attach_asset_id(failed, step.params, state)
+                    TaskService.emit_event(state.task_id, "tool_completed", {
+                        "tool_name": step.tool_name,
+                        "step_id": step.step_id,
+                        "status": failed.status,
+                        "latency_ms": failed.latency_ms,
+                        "result": {
+                            "summary": failed.error,
+                        },
+                    })
                     results.append(failed)
 
     for step in dependent_steps:
@@ -110,11 +127,9 @@ def execute_tools(state: InvestmentState) -> Dict[str, Any]:
             "preferences": state.user_profile,
         }
         with ThreadPoolExecutor(max_workers=1, thread_name_prefix="v2_tool") as pool:
-            future = pool.submit(_execute_single_tool, registry, step.tool_name, params)
+            future = pool.submit(_execute_step, state, registry, step, params)
             try:
                 result = future.result(timeout=step.timeout or TOOL_TIMEOUT)
-                result.step_id = step.step_id
-                _attach_asset_id(result, step.params, state)
                 results.append(result)
             except TimeoutError:
                 failed = ToolResult(
@@ -124,6 +139,15 @@ def execute_tools(state: InvestmentState) -> Dict[str, Any]:
                     step_id=step.step_id,
                 )
                 _attach_asset_id(failed, step.params, state)
+                TaskService.emit_event(state.task_id, "tool_completed", {
+                    "tool_name": step.tool_name,
+                    "step_id": step.step_id,
+                    "status": failed.status,
+                    "latency_ms": failed.latency_ms,
+                    "result": {
+                        "summary": failed.error,
+                    },
+                })
                 results.append(failed)
 
     success_count = sum(1 for r in results if r.status in ("success", "partial"))
@@ -151,6 +175,50 @@ def _execute_single_tool(registry, tool_name: str, params: Dict[str, Any]) -> To
             error=f"工具 {tool_name} 未注册",
         )
     return tool.run(**params)
+
+
+def _execute_step(state: InvestmentState, registry, step, params: Dict[str, Any] = None) -> ToolResult:
+    payload = params or step.params
+    started_at = __import__("time").time()
+    TaskService.emit_event(state.task_id, "tool_started", {
+        "tool_name": step.tool_name,
+        "step_id": step.step_id,
+        "description": step.tool_name,
+    })
+    try:
+        result = _execute_single_tool(registry, step.tool_name, payload)
+        result.step_id = step.step_id
+        result.latency_ms = int((__import__("time").time() - started_at) * 1000)
+        _attach_asset_id(result, step.params, state)
+        TaskService.emit_event(state.task_id, "tool_completed", {
+            "tool_name": step.tool_name,
+            "step_id": step.step_id,
+            "status": result.status,
+            "latency_ms": result.latency_ms,
+            "result": {
+                "summary": result.error or result.data.get("summary") or "工具执行完成",
+            },
+        })
+        return result
+    except Exception as exc:
+        failed = ToolResult(
+            tool_name=step.tool_name,
+            status="failed",
+            error=str(exc),
+            step_id=step.step_id,
+            latency_ms=int((__import__("time").time() - started_at) * 1000),
+        )
+        _attach_asset_id(failed, step.params, state)
+        TaskService.emit_event(state.task_id, "tool_completed", {
+            "tool_name": step.tool_name,
+            "step_id": step.step_id,
+            "status": failed.status,
+            "latency_ms": failed.latency_ms,
+            "result": {
+                "summary": failed.error,
+            },
+        })
+        return failed
 
 
 def _attach_asset_id(result: ToolResult, params: Dict[str, Any], state: InvestmentState) -> None:

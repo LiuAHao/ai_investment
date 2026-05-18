@@ -75,23 +75,23 @@ const HistoryView = ({ onNavigate }) => {
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                 <h3 style={{ fontSize: 16, fontWeight: 600 }}>
-                  {session.query || '未命名研究'}
+                  {session.query || '—'}
                 </h3>
                 <span style={{ fontSize: 12, color: 'var(--text3)', fontFamily: 'ui-monospace, monospace' }}>
                   {formatDate(session.created_at).split(' ')[0]}
                 </span>
               </div>
               <div style={{ display: 'flex', gap: 8, fontSize: 12, color: 'var(--text3)', marginBottom: 12 }}>
-                <span>{session.turn_count || 1} 轮研究</span>
+                <span>{session.turn_count ? `${session.turn_count} 轮研究` : '—'}</span>
                 <span>·</span>
-                <span>{session.asset || '通用分析'}</span>
+                <span>{session.asset || '—'}</span>
               </div>
               <p style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 12, lineHeight: 1.5 }}>
                 {session.query || ''}
               </p>
               <div style={{ display: 'flex', gap: 6 }}>
-                <span className="v2-tag">{session.risk_pref || '稳健型'}</span>
-                <span className="v2-tag">{session.period || '三个月'}</span>
+                <span className="v2-tag">{session.risk_pref || '—'}</span>
+                <span className="v2-tag">{session.period || '—'}</span>
               </div>
             </div>
           ))}

@@ -19,6 +19,7 @@ from agent.v2.state import (
     Polarity,
     ToolResult,
 )
+from services.task_service import TaskService
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,11 @@ def collect_evidence(state: InvestmentState) -> Dict[str, Any]:
             evidence_items.extend(items)
 
     ranked_evidence = _rank_evidence(evidence_items)
+
+    for evidence in ranked_evidence:
+        TaskService.emit_event(state.task_id, "evidence_added", {
+            "evidence": evidence.model_dump(mode="json") if hasattr(evidence, "model_dump") else evidence,
+        })
 
     trace = state.trace + [{
         "node": "collect_evidence",

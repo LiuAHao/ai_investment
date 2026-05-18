@@ -29,13 +29,6 @@ const PHASES = [
   { id: 5, title: '最终结论', desc: 'AnswerComposer' },
 ];
 
-const RECOMMENDED_QUESTIONS = [
-  '分析宁德时代未来三个月的风险',
-  '沪深300ETF适合长期定投吗',
-  'AAPL 当前估值贵不贵',
-  '半导体行业近期有哪些风险',
-];
-
 const NODE_LABELS = {
   load_context: '加载上下文',
   route_intent: '意图识别',
@@ -61,8 +54,8 @@ function defaultAgentState() {
 const ResearchChatView = () => {
   const [phase, setPhase] = useState('hero'); // hero | analyzing | done
   const [query, setQuery] = useState('');
-  const [riskPref, setRiskPref] = useState('稳健型');
-  const [period, setPeriod] = useState('三个月');
+  const [riskPref, setRiskPref] = useState('');
+  const [period, setPeriod] = useState('');
   const [debugMode, setDebugMode] = useState(false);
 
   // 分析状态
@@ -77,9 +70,19 @@ const ResearchChatView = () => {
   const [activeTools, setActiveTools] = useState([]);
   const [currentSessionId, setCurrentSessionId] = useState(null);
   const [expandedTurns, setExpandedTurns] = useState({});
+  const [errorMessage, setErrorMessage] = useState('');
 
   const eventStreamRef = useRef(null);
   const pollTimerRef = useRef(null);
+  const completedTaskIdsRef = useRef(new Set());
+  const activeSnapshotRef = useRef({
+    query: '',
+    agents: defaultAgentState(),
+    tools: [],
+    evidence: [],
+    critic: null,
+    compliance: null,
+  });
 
   useEffect(() => {
     return () => {
@@ -87,6 +90,17 @@ const ResearchChatView = () => {
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    activeSnapshotRef.current = {
+      query: activeQuery,
+      agents: activeAgents,
+      tools: activeTools,
+      evidence: activeEvidence,
+      critic: activeCritic,
+      compliance: activeCompliance,
+    };
+  }, [activeQuery, activeAgents, activeTools, activeEvidence, activeCritic, activeCompliance]);
 
   /* ── 工具函数 ── */
   const mapNodeToAgent = useCallback((nodeName) => {
@@ -120,40 +134,58 @@ const ResearchChatView = () => {
   }, []);
 
   const applyCompletedResult = useCallback((result) => {
-    setActivePhase(5);
-    setActiveAnswer(result.investment_answer || result.answer || null);
-    if (result.evidence_items) setActiveEvidence(result.evidence_items);
-    if (result.critic_result) setActiveCritic(result.critic_result);
-    if (result.compliance_result) setActiveCompliance(result.compliance_result);
+    const snapshot = activeSnapshotRef.current;
+    const answer = result.investment_answer || result.answer || (result.final_answer ? { summary: result.final_answer } : null);
+    const evidence = result.evidence_items || snapshot.evidence || [];
+    const critic = result.critic_result || snapshot.critic || null;
+    const compliance = result.compliance_result || snapshot.compliance || null;
+    const agents = { ...(snapshot.agents || defaultAgentState()) };
 
-    setActiveAgents(prev => {
-      const updated = { ...prev };
-      Object.keys(updated).forEach(k => {
-        if (updated[k].status === 'running') {
-          updated[k] = { ...updated[k], status: 'completed' };
-        }
-      });
-      return updated;
+    Object.keys(agents).forEach(k => {
+      if (agents[k].status === 'running') {
+        agents[k] = { ...agents[k], status: 'completed' };
+      }
     });
+
+    setActivePhase(5);
+    setErrorMessage(result.degraded && result.errors?.length ? result.errors.join('；') : '');
+    setActiveAnswer(answer);
+    setActiveEvidence(evidence);
+    setActiveCritic(critic);
+    setActiveCompliance(compliance);
+    setActiveAgents(agents);
 
     setTurns(prev => {
       const newTurn = {
         id: `turn_${prev.length + 1}`,
-        query: activeQuery,
+        query: snapshot.query,
         queryType: prev.length === 0 ? 'initial' : 'follow_up',
-        agents: { ...activeAgents },
-        tools: [...activeTools],
-        evidenceItems: [...activeEvidence],
-        criticResult: activeCritic,
-        complianceResult: activeCompliance,
-        answer: result.investment_answer || result.answer || null,
+        agents,
+        tools: [...(snapshot.tools || [])],
+        evidenceItems: evidence,
+        criticResult: critic,
+        complianceResult: compliance,
+        answer,
         createdAt: new Date().toLocaleString('zh-CN'),
       };
       return [...prev, newTurn];
     });
 
     setPhase('done');
-  }, [activeQuery, activeAgents, activeTools, activeEvidence, activeCritic, activeCompliance]);
+  }, []);
+
+  const finishTask = useCallback((taskId, result) => {
+    if (taskId) {
+      if (completedTaskIdsRef.current.has(taskId)) return;
+      completedTaskIdsRef.current.add(taskId);
+    }
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+    eventStreamRef.current?.close();
+    applyCompletedResult(result || {});
+  }, [applyCompletedResult]);
 
   /* ── SSE 事件处理 ── */
   const handleEvent = useCallback((event) => {
@@ -182,6 +214,7 @@ const ResearchChatView = () => {
       }
       case 'tool_started': {
         setActiveTools(prev => [...prev, {
+          stepId: event.data?.step_id,
           name: event.data?.tool_name || 'unknown',
           status: 'running',
           desc: event.data?.description || '',
@@ -192,8 +225,8 @@ const ResearchChatView = () => {
       }
       case 'tool_completed': {
         setActiveTools(prev => prev.map(t =>
-          t.name === event.data?.tool_name
-            ? { ...t, status: 'completed', result: event.data?.result }
+          (event.data?.step_id ? t.stepId === event.data.step_id : t.name === event.data?.tool_name)
+            ? { ...t, status: event.data?.status === 'failed' ? 'failed' : 'completed', result: event.data?.result }
             : t
         ));
         break;
@@ -217,17 +250,18 @@ const ResearchChatView = () => {
         break;
       }
       case 'task_completed': {
-        applyCompletedResult(event.data?.result || {});
+        finishTask(event.task_id || event.data?.task_id, event.data?.result || {});
         break;
       }
       case 'task_failed': {
+        setErrorMessage(event.data?.error || '任务执行失败');
         setPhase('done');
         break;
       }
       default:
         break;
     }
-  }, [mapNodeToAgent, mapNodeToPhase, applyCompletedResult]);
+  }, [mapNodeToAgent, mapNodeToPhase, finishTask]);
 
   /* ── 轮询 ── */
   const startPolling = useCallback((taskId) => {
@@ -236,24 +270,23 @@ const ResearchChatView = () => {
       try {
         const status = await getTaskStatus(taskId);
         if (status.status === 'completed') {
-          clearInterval(pollTimerRef.current);
-          pollTimerRef.current = null;
-          eventStreamRef.current?.close();
-          applyCompletedResult(status.result || {});
+          finishTask(taskId, status.result || {});
         }
         if (['failed', 'timeout'].includes(status.status)) {
           clearInterval(pollTimerRef.current);
           pollTimerRef.current = null;
           eventStreamRef.current?.close();
+          setErrorMessage(status.error || (status.status === 'timeout' ? '任务执行超时' : '任务执行失败'));
           setPhase('done');
         }
       } catch {
         clearInterval(pollTimerRef.current);
         pollTimerRef.current = null;
+        setErrorMessage('无法获取任务状态，请检查网络或后端服务');
         setPhase('done');
       }
     }, 1200);
-  }, [applyCompletedResult]);
+  }, [finishTask]);
 
   /* ── 提交分析 ── */
   const startAnalysis = async (q) => {
@@ -261,6 +294,7 @@ const ResearchChatView = () => {
     if (!queryText.trim()) return;
 
     setPhase('analyzing');
+    setErrorMessage('');
     setActiveQuery(queryText);
     setActivePhase(-1);
     setActiveAgents(defaultAgentState());
@@ -269,9 +303,14 @@ const ResearchChatView = () => {
     setActiveCompliance(null);
     setActiveAnswer(null);
     setActiveTools([]);
+    completedTaskIdsRef.current = new Set();
 
     try {
-      const result = await submitQuery(queryText, currentSessionId, { debugMode, riskPref, period });
+      const result = await submitQuery(queryText, currentSessionId, {
+        debug_mode: debugMode,
+        risk_preference: riskPref || undefined,
+        investment_horizon: period || undefined,
+      });
       if (result.task_id) {
         if (result.session_id) setCurrentSessionId(result.session_id);
         const stream = createEventStream(result.task_id, handleEvent, () => {
@@ -280,7 +319,8 @@ const ResearchChatView = () => {
         eventStreamRef.current = stream;
         startPolling(result.task_id);
       }
-    } catch {
+    } catch (err) {
+      setErrorMessage(err?.message || '分析请求失败，请检查后端服务是否启动');
       setPhase('done');
     }
   };
@@ -302,7 +342,7 @@ const ResearchChatView = () => {
           value={query}
           onChange={e => setQuery(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); startAnalysis(); } }}
-          placeholder="输入你想研究的投资问题, 例如: 分析宁德时代未来三个月的风险"
+          placeholder="输入你想研究的投资问题"
           style={{
             width: '100%', minHeight: 120, padding: '16px 20px',
             background: 'var(--card)', border: '1px solid var(--border)',
@@ -315,13 +355,15 @@ const ResearchChatView = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 13, color: 'var(--text3)' }}>风险偏好</span>
             <select value={riskPref} onChange={e => setRiskPref(e.target.value)} style={{ padding: '8px 32px 8px 12px', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', fontSize: 13 }}>
-              {['保守型', '稳健型', '平衡型', '进取型', '激进型'].map(v => <option key={v}>{v}</option>)}
+              <option value="">请选择</option>
+              {['保守型', '稳健型', '平衡型', '进取型', '激进型'].map(v => <option key={v} value={v}>{v}</option>)}
             </select>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 13, color: 'var(--text3)' }}>投资周期</span>
             <select value={period} onChange={e => setPeriod(e.target.value)} style={{ padding: '8px 32px 8px 12px', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', fontSize: 13 }}>
-              {['一个月', '三个月', '半年', '一年'].map(v => <option key={v}>{v}</option>)}
+              <option value="">请选择</option>
+              {['一个月', '三个月', '半年', '一年'].map(v => <option key={v} value={v}>{v}</option>)}
             </select>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -346,25 +388,6 @@ const ResearchChatView = () => {
           </button>
         </div>
 
-        {/* Recommended questions */}
-        <div style={{ marginBottom: 8, textAlign: 'center' }}>
-          <span style={{ fontSize: 12, color: 'var(--text3)', display: 'block', marginBottom: 10 }}>推荐问题</span>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center' }}>
-            {RECOMMENDED_QUESTIONS.map((q, i) => (
-              <button
-                key={i}
-                onClick={() => setQuery(q)}
-                style={{
-                  padding: '6px 14px', borderRadius: 6, fontSize: 13,
-                  background: 'rgba(220, 38, 38, 0.08)', color: 'var(--text2)',
-                  border: '1px solid rgba(220, 38, 38, 0.15)',
-                }}
-              >
-                {q}
-              </button>
-            ))}
-          </div>
-        </div>
       </div>
     );
   }
@@ -628,16 +651,11 @@ const ResearchChatView = () => {
       )}
       {compliance && (
         <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, padding: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <span style={{ fontSize: 14, fontWeight: 600 }}>合规校验</span>
             <span style={{ color: compliance.passed ? 'var(--green)' : 'var(--red-bright)' }}>
               {compliance.passed ? '通过' : '未通过'}
             </span>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 13, color: 'var(--green)' }}>✓ 无确定性收益承诺</span>
-            <span style={{ fontSize: 13, color: 'var(--green)' }}>✓ 无诱导交易表达</span>
-            <span style={{ fontSize: 13, color: 'var(--green)' }}>✓ 已添加风险提示</span>
           </div>
         </div>
       )}
@@ -742,12 +760,14 @@ const ResearchChatView = () => {
         )}
 
         {/* 合规声明 */}
-        <div className="compliance-banner">
-          <span style={{ color: 'var(--yellow)', fontSize: 16, flexShrink: 0 }}>⚠</span>
-          <span style={{ fontSize: 12, color: 'var(--text3)', lineHeight: 1.6 }}>
-            {a.compliance_disclaimer || '本分析基于公开数据和AI模型推演, 不构成投资建议。投资有风险, 决策需谨慎。'}
-          </span>
-        </div>
+        {a.compliance_disclaimer && (
+          <div className="compliance-banner">
+            <span style={{ color: 'var(--yellow)', fontSize: 16, flexShrink: 0 }}>⚠</span>
+            <span style={{ fontSize: 12, color: 'var(--text3)', lineHeight: 1.6 }}>
+              {a.compliance_disclaimer}
+            </span>
+          </div>
+        )}
       </div>
     );
   };
@@ -788,6 +808,21 @@ const ResearchChatView = () => {
         return renderFlowCanvas(turn, idx, false);
       })}
 
+      {errorMessage && (
+        <div style={{
+          marginBottom: 16,
+          padding: '12px 16px',
+          borderRadius: 8,
+          border: '1px solid rgba(220, 38, 38, 0.2)',
+          background: 'rgba(220, 38, 38, 0.08)',
+          color: 'var(--red-bright)',
+          fontSize: 13,
+          lineHeight: 1.6,
+        }}>
+          {errorMessage}
+        </div>
+      )}
+
       {/* Active analysis */}
       {phase === 'analyzing' && renderFlowCanvas({
         id: 'active', query: activeQuery,
@@ -801,7 +836,7 @@ const ResearchChatView = () => {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginBottom: 16 }}>
             <span style={{ color: 'var(--text3)', fontSize: 13 }}>当前上下文</span>
             <span style={{ color: 'var(--text2)', fontSize: 13 }}>
-              {activeQuery} · {period} · {riskPref} · 累计 {turns.reduce((a, t) => a + (t.evidenceItems?.length || 0), 0)} 条证据
+              {activeQuery} · {period || '—'} · {riskPref || '—'} · 累计 {turns.reduce((a, t) => a + (t.evidenceItems?.length || 0), 0)} 条证据
             </span>
           </div>
           <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
@@ -826,21 +861,6 @@ const ResearchChatView = () => {
             >
               继续分析
             </button>
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
-            {['如果周期改成半年呢？', '最大的风险是什么？', '和比亚迪相比呢？'].map((q, i) => (
-              <button
-                key={i}
-                onClick={() => setQuery(q)}
-                style={{
-                  padding: '6px 14px', borderRadius: 6, fontSize: 13,
-                  background: 'rgba(220, 38, 38, 0.08)', color: 'var(--text2)',
-                  border: '1px solid rgba(220, 38, 38, 0.15)',
-                }}
-              >
-                {q}
-              </button>
-            ))}
           </div>
         </div>
       )}

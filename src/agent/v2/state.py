@@ -169,7 +169,7 @@ class InvestmentAnswer(BaseModel):
     summary: str = ""
     key_points: List[str] = Field(default_factory=list)
     evidence_refs: List[str] = Field(default_factory=list)
-    scenarios: Dict[str, str] = Field(default_factory=dict)
+    scenarios: List[Dict[str, Any]] = Field(default_factory=list)
     risks: List[str] = Field(default_factory=list)
     action_options: List[str] = Field(default_factory=list)
     confidence: float = 0.0
@@ -213,6 +213,7 @@ class InvestmentState(BaseModel):
     session_id: str
     user_id: int
     query: str
+    task_id: Optional[str] = None
     chat_history: List[Dict[str, str]] = Field(default_factory=list)
     user_profile: Dict[str, Any] = Field(default_factory=dict)
     intent: Optional[IntentResult] = None
