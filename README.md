@@ -29,24 +29,24 @@ OrchestratorAgent（总编排）
 - **真多 Agent**：每个调研 Agent 由 LLM 驱动，自主决定工具调用序列（function calling 优先，JSON 兜底），循环边界由 Agent 自己判断
 - **按需调度**：编排 Agent 只启动必要的调研 Agent（如"市场环境"只需 Market + News），前端只渲染实际启动的卡片
 - **并行执行**：三个调研 Agent 通过 `ThreadPoolExecutor` 并行运行
-- **Agent 自学习**：研究结论自动沉淀进 RAG 知识库（L3 层），下次同类问题可复用
 - **前端聚焦执行过程**：实时展示编排思考、各 Agent 思考流与工具调用、最终报告
+- **SSE 实时推送**：任务全程事件流，支持断线重连补发快照
 
 ## 技术栈
 
 - 后端：`Python`、`Flask`、`pydantic`
 - Agent：自研 ReAct 循环（OpenAI 兼容 function calling）
 - 前端：`React`、`Vite`
-- 数据：`AKShare`、`ChromaDB`、`sentence-transformers`
+- 数据：`AKShare`、`Tushare`、`ChromaDB`、`sentence-transformers`
 - 检索：混合检索（向量 + 关键词 + RRF + Rerank）
 
 ## 项目结构
 
 ```text
 ai_investment/
-├── run.py                      # 启动脚本（前后端快捷启动）
+├── run.py                      # 启动脚本（前后端快捷启动，自动选择 Node 版本）
 ├── requirements.txt            # Python 依赖
-├── docs/                       # 重构方案与前端原型
+├── docs/                       # 设计文档与历史记录
 └── src/
     ├── api/                    # Flask API 层
     │   ├── main.py             # 应用工厂
@@ -64,7 +64,7 @@ ai_investment/
     ├── asset/                  # 资产主数据与解析
     ├── tools/                  # 工具层（注册中心 + 11 个工具）
     ├── data/                   # 数据源（行情 / 新闻）
-    ├── rag/                    # RAG 知识库（检索 + L3 沉淀）
+    ├── rag/                    # RAG 知识库（检索）
     ├── services/               # 事件总线等
     ├── utils/                  # LLM 客户端、联网搜索等
     └── web/                    # React 前端
@@ -139,17 +139,19 @@ python run.py --frontend
 
 | 路由 | 方法 | 说明 |
 |------|------|------|
+| `/` | GET | API 信息（name / version / status） |
+| `/api/health` | GET | 健康检查 |
 | `/api/agent/query` | POST | 提交研究任务，返回 `{task_id, session_id}` |
-| `/api/agent/events/<task_id>` | GET | SSE 事件流（Agent 实时进度） |
+| `/api/agent/events/<task_id>` | GET | SSE 事件流（Agent 实时进度，30s 心跳） |
 | `/api/agent/tasks/<task_id>` | GET | 查询任务状态 |
 | `/api/history` | GET | 会话列表（内存态） |
 | `/api/history/<session_id>` | GET | 会话详情 |
-| `/api/health` | GET | 健康检查 |
 
 ### SSE 事件类型
 
 | 事件 | 说明 |
 |------|------|
+| `connected` / `heartbeat` | 连接建立 / 30s 心跳保活 |
 | `orchestrator_thinking` / `orchestrator_decided` | 编排 Agent 思考与派发计划 |
 | `agent_started` / `agent_thinking` / `agent_completed` | 调研 Agent 生命周期 |
 | `tool_started` / `tool_completed` / `tool_failed` | 工具调用进度 |
@@ -172,14 +174,19 @@ npm run dev      # 开发
 npm run build    # 构建
 npm run preview  # 预览
 npm run lint     # 代码检查
+npm run test     # 测试（vitest）
 ```
 
 前端核心文件：
 
+- `App.jsx` — 应用入口（视图切换 + 底部常驻输入终端）
+- `components/agents/AgentWorkspace.jsx` — 三段式研究流程（编排 → 工位 → 研报）
 - `components/agents/AgentCard.jsx` — 单 Agent 执行卡片（思考流 + 工具调用流）
 - `components/agents/OrchestratorCard.jsx` — 编排 Agent 卡片
 - `components/agents/SummaryCard.jsx` — 总结分析与最终报告
+- `components/views/HistoryView.jsx` + `components/agents/TurnDetail.jsx` — 历史会话与详情
 - `hooks/useAgentStream.js` — SSE 事件流状态管理
+- `services/apiClient.js` — API 封装
 
 ## RAG 知识库
 

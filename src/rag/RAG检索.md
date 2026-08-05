@@ -37,17 +37,14 @@ RAG 相关目录位于 src/rag，核心结构如下：
 - 将资料放入 data/raw，支持 .md 与 .txt
 
 2) 清洗与切分
-- 使用脚本 scripts/prepare_chunks.py
-- 规则：按 Markdown 标题切分，长度 200-800 字为主
+- 按 Markdown 标题切分，长度 200-800 字为主
 - 输出：data/chunks/chunks.jsonl
 
 3) 向量化入库（Chroma）
-- 使用脚本 scripts/build_chroma_index.py
 - 通过 SentenceTransformer 生成向量
 - 持久化存储至 index/chroma
 
 4) 检索与重排
-- 使用 scripts/query_chroma.py 进行检索验证
 - 生产调用由 query_investment_knowledge 统一封装
 
 ---
@@ -95,18 +92,17 @@ RAG 相关目录位于 src/rag，核心结构如下：
 ---
 
 ## 7. Agent 调用接入
-主控 Agent 已注册工具：
-- query_investment_knowledge
+知识库工具已注册到工具注册中心：
+- KnowledgeQueryTool → query_investment_knowledge
 
-由 DecisionAgent 在工具选择阶段调用，结果参与最终总结。
+调研 Agent 在工具选择阶段调用，结果参与最终总结。
 
 ---
 
 ## 8. 使用步骤（最短路径）
-1) 将知识材料放入 data/raw
-2) 运行 prepare_chunks.py 生成 chunks
-3) 运行 build_chroma_index.py 构建向量索引
-4) 在 Agent 中自动调用 query_investment_knowledge
+1) 将知识材料放入 data/raw（或直接维护 data/chunks/chunks.jsonl）
+2) 确认 index/chroma 向量库与 chunks.jsonl 可用
+3) 在 Agent 中自动调用 query_investment_knowledge
 
 ---
 

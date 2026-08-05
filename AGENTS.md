@@ -10,17 +10,17 @@
 
 ### Python后端
 ```bash
-# 安装依赖
-pip install -r requirements.txt
+# 安装依赖（建议使用项目 venv）
+.venv/bin/pip install -r requirements.txt
 
 # 启动后端（默认端口 5001）
-python run.py --backend
+.venv/bin/python run.py --backend
 
 # 启动前端开发服务器
-python run.py --frontend
+.venv/bin/python run.py --frontend
 
 # 验证后端可启动（导入检查）
-PYTHONPATH=src python -c "from api.main import create_app; create_app()"
+PYTHONPATH=src .venv/bin/python -c "from api.main import create_app; create_app()"
 ```
 
 ### React前端 (src/web目录)
@@ -159,29 +159,30 @@ export default CustomComponent;
 
 ```
 ai_investment/
-├── src/
-│   ├── agents/         # ★ 多Agent核心
-│   │   ├── orchestrator.py     # 总编排Agent
-│   │   ├── base.py             # BaseReActAgent基类
-│   │   ├── loop.py             # ReAct循环执行器
-│   │   ├── research/           # 调研Agent（market/news/knowledge）
-│   │   ├── summary_agent.py    # 总结分析Agent
-│   │   ├── state.py            # 状态模型
-│   │   ├── events.py           # 事件发射
-│   │   └── memory.py           # 内存会话
-│   ├── api/            # Flask API
-│   │   ├── main.py
-│   │   ├── events.py   # SSE事件流
-│   │   └── routes/     # agent/history路由
-│   ├── asset/          # 资产主数据与解析
-│   ├── tools/          # 工具层（11个工具）
-│   ├── data/           # 数据源（行情/新闻）
-│   ├── rag/            # RAG知识库（检索+L3沉淀）
-│   ├── services/       # 事件总线等
-│   ├── utils/          # LLM客户端、联网搜索
-│   └── web/            # React前端
+├── run.py              # 主启动脚本（前后端快捷启动，自动选择 Node 版本）
 ├── requirements.txt    # Python依赖
-└── run.py             # 主启动脚本
+├── docs/               # 设计文档与历史记录
+└── src/
+    ├── agents/         # ★ 多Agent核心
+    │   ├── orchestrator.py     # 总编排Agent
+    │   ├── base.py             # BaseReActAgent基类
+    │   ├── loop.py             # ReAct循环执行器
+    │   ├── research/           # 调研Agent（market/news/knowledge）
+    │   ├── summary_agent.py    # 总结分析Agent
+    │   ├── state.py            # 状态模型
+    │   ├── events.py           # 事件发射
+    │   └── memory.py           # 内存会话
+    ├── api/            # Flask API
+    │   ├── main.py
+    │   ├── events.py   # SSE事件流
+    │   └── routes/     # agent/history路由
+    ├── asset/          # 资产主数据与解析
+    ├── tools/          # 工具层（注册中心 + 11个工具）
+    ├── data/           # 数据源（行情/新闻）
+    ├── rag/            # RAG知识库（检索）
+    ├── services/       # 事件总线等
+    ├── utils/          # LLM客户端、联网搜索
+    └── web/            # React前端（Vite）
 ```
 
 ## 开发工作流
