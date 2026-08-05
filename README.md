@@ -188,15 +188,8 @@ RAG 在 `src/rag/`，采用**差异化内容策略**（只装网络给不了的�
 - 合规风控规则库、A股交易与监管规则（可溯源）
 - 指标口径说明（A股 vs 美股确定性事实）
 - 分析框架与工具手册（Agent 工具书）
-- **L3 沉淀**：研究完成后自动写入（`rag/indexer.py` 的 `add_knowledge()`）
 
-重建索引：
-
-```bash
-cd src && python -m rag.scripts.prepare_chunks
-python -m rag.scripts.build_chroma_index
-python -m rag.scripts.build_index
-```
+知识检索统一入口为 `src/rag/knowledge_tool.py` 的 `query_investment_knowledge()`（向量 + 关键词混合检索），查询数据源为 `src/rag/data/chunks/chunks.jsonl` 与 `src/rag/index/chroma/`。
 
 ## 免责声明
 
