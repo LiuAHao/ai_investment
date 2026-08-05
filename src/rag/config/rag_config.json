@@ -50,6 +50,16 @@
     "min_results": 1,
     "min_score": 0.02
   },
+  "sediment": {
+    "min_summary_chars": 50,
+    "min_key_points": 1,
+    "dedup_skip_threshold": 0.92,
+    "dedup_merge_threshold": 0.8,
+    "max_l3_entries": 200,
+    "distill_enabled": true,
+    "distill_model": "",
+    "retrieval_weight": 0.5
+  },
   "io": {
     "encoding": "utf-8",
     "allowed_exts": [".md", ".txt"]

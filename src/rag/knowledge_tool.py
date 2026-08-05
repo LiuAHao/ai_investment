@@ -114,6 +114,7 @@ class RagKnowledgeBase:
                         "doc_id": chunk.get("doc_id"),
                         "title": chunk.get("title"),
                         "source_path": chunk.get("source_path"),
+                        "layer": chunk.get("layer"),
                     },
                     "keyword_score": score,
                 }
@@ -125,23 +126,30 @@ class RagKnowledgeBase:
         vector_items: Iterable[Dict[str, Any]],
         keyword_items: Iterable[Dict[str, Any]],
         rrf_k: int,
+        l3_weight: float = 0.5,
     ) -> List[Dict[str, Any]]:
+        """RRF 融合（L3 沉淀知识按 l3_weight 降权，防止自学习噪声压过静态知识）"""
         fused: Dict[str, Dict[str, Any]] = {}
+
+        def _layer_of(item: Dict[str, Any]) -> str:
+            return str((item.get("metadata") or {}).get("layer") or "")
 
         for rank, item in enumerate(vector_items, start=1):
             chunk_id = str(item.get("chunk_id"))
             if not chunk_id:
                 continue
+            weight = l3_weight if _layer_of(item) == "L3" else 1.0
             entry = fused.get(chunk_id, dict(item))
-            entry["rrf_score"] = entry.get("rrf_score", 0.0) + 1.0 / (rrf_k + rank)
+            entry["rrf_score"] = entry.get("rrf_score", 0.0) + weight / (rrf_k + rank)
             fused[chunk_id] = entry
 
         for rank, item in enumerate(keyword_items, start=1):
             chunk_id = str(item.get("chunk_id"))
             if not chunk_id:
                 continue
+            weight = l3_weight if _layer_of(item) == "L3" else 1.0
             entry = fused.get(chunk_id, dict(item))
-            entry["rrf_score"] = entry.get("rrf_score", 0.0) + 1.0 / (rrf_k + rank)
+            entry["rrf_score"] = entry.get("rrf_score", 0.0) + weight / (rrf_k + rank)
             fused[chunk_id] = entry
 
         return sorted(fused.values(), key=lambda x: x.get("rrf_score", 0.0), reverse=True)
@@ -228,7 +236,8 @@ class RagKnowledgeBase:
         keyword_items = self._keyword_rank(query, keyword_top_k) if hybrid_enabled else []
 
         if hybrid_enabled:
-            fused_items = self._rrf_fuse(vector_items, keyword_items, rrf_k)
+            l3_weight = float(self._config.get("sediment", {}).get("retrieval_weight", 0.5))
+            fused_items = self._rrf_fuse(vector_items, keyword_items, rrf_k, l3_weight=l3_weight)
             items = fused_items[:limit]
         else:
             items = vector_items[:limit]

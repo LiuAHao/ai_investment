@@ -43,6 +43,12 @@ build/
 
 ## Database
 *.db
+*.sqlite3
+
+## RAG 中间产物（可重建，不提交）
+src/rag/index/chroma/
+src/rag/data/clean/
+src/rag/index/simple_index.json
 
 ## Misc
 *.local

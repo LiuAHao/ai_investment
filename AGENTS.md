@@ -179,7 +179,7 @@ ai_investment/
     ├── asset/          # 资产主数据与解析
     ├── tools/          # 工具层（注册中心 + 11个工具）
     ├── data/           # 数据源（行情/新闻）
-    ├── rag/            # RAG知识库（检索）
+    ├── rag/            # RAG知识库（检索 + L3沉淀）
     ├── services/       # 事件总线等
     ├── utils/          # LLM客户端、联网搜索
     └── web/            # React前端（Vite）

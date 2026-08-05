@@ -94,6 +94,9 @@ class OrchestratorAgent:
             session_id=session_id,
         )
 
+        # 5. L3 沉淀：将研究结论蒸馏为可复用知识写回知识库（带质量管控，失败不影响主流程）
+        self._sediment_research(answer)
+
         return {
             "query": query,
             "assets": [a.model_dump() for a in assets],
@@ -240,6 +243,45 @@ class OrchestratorAgent:
         order = {name: idx for idx, name in enumerate(agent_names)}
         results.sort(key=lambda r: order.get(r.agent_name, 99))
         return results
+
+    # ---------- L3 知识沉淀 ----------
+
+    def _sediment_research(self, answer: Any) -> None:
+        """
+        将研究结论蒸馏为可复用知识写入知识库（L3 沉淀）。
+
+        使用质量管控管线：质量门槛 → LLM 蒸馏 → 相似度查重 → 分层写入 → 生命周期。
+        沉淀失败/被拒绝均不影响研究主流程，只记录日志。
+        """
+        try:
+            from rag.indexer import sediment_research
+
+            degraded = False
+            has_evidence = bool(answer.evidence_refs)
+            # 结论为空则视为降级，阻止沉淀
+            if not (answer.summary or "").strip():
+                degraded = True
+
+            result = sediment_research(
+                summary=answer.summary or "",
+                key_points=list(answer.key_points or []),
+                reasoning=answer.reasoning or "",
+                query=answer.query or "",
+                degraded=degraded,
+                has_evidence=has_evidence,
+                confidence=float(getattr(answer, "confidence", 0.0) or 0.0),
+                time_frame=getattr(answer, "time_frame", "") or "",
+            )
+            status = result.get("status", "error")
+            if status == "written":
+                events.orchestrator_thinking(
+                    self.task_id,
+                    f"L3 知识沉淀完成：{result.get('title', '')}",
+                )
+            else:
+                logger.info("L3 沉淀未写入（%s）：%s", status, result.get("reason", ""))
+        except Exception as exc:
+            logger.exception("L3 知识沉淀异常（不影响主流程）: %s", exc)
 
     # ---------- 基础设施 ----------
 

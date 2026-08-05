@@ -195,8 +195,31 @@ RAG 在 `src/rag/`，采用**差异化内容策略**（只装网络给不了的�
 - 合规风控规则库、A股交易与监管规则（可溯源）
 - 指标口径说明（A股 vs 美股确定性事实）
 - 分析框架与工具手册（Agent 工具书）
+- 行业研究框架（白酒/半导体/新能源/银行/医药）
+- ETF 与指数知识（机制/分类/折溢价/宽基指数）
+- 港股美股交易规则（T+0/熔断/10-K/多市场差异）
+- 财务分析进阶（杜邦拆解/现金流质量/资产质量）
+- **L3 沉淀知识**（Agent 自学习闭环，见下）
 
 知识检索统一入口为 `src/rag/knowledge_tool.py` 的 `query_investment_knowledge()`（向量 + 关键词混合检索），查询数据源为 `src/rag/data/chunks/chunks.jsonl` 与 `src/rag/index/chroma/`。
+
+### L3 沉淀（Agent 自学习闭环）
+
+研究完成后，编排器自动将结论沉淀回知识库（`src/rag/indexer.py`），带**质量管控管线**防止噪声膨胀：
+
+1. **质量门槛**：研究降级 / 结论过短 / 无证据且无要点 → 拒绝写入
+2. **LLM 知识提炼**：不写"时效性结论"，而是蒸馏为可复用知识（方法/口径/规则），剥离短期观点
+3. **相似度查重**：与库内 L3 沉淀比对，高度相似跳过、中度相似合并
+4. **分层写入**：metadata 标记 `layer=L3`，检索时 L3 自动降权（默认权重 0.5），避免自学习噪声压过静态知识
+5. **生命周期**：L3 条目超上限（默认 200）时淘汰最旧
+
+关键参数见 `src/rag/config/rag_config.json` 的 `sediment` 段。
+
+> 向量库（`src/rag/index/chroma/`）与中间产物（`src/rag/data/clean/`）已被 `.gitignore` 忽略，不随代码提交。新环境初始化或索引损坏时执行重建（两步：先切分 chunks，再重建向量库）：
+>
+> ```bash
+> PYTHONPATH=src .venv/bin/python -c "from rag.indexer import rebuild_chunks_from_raw, rebuild_chroma_index; print(rebuild_chunks_from_raw()); print(rebuild_chroma_index())"
+> ```
 
 ## 免责声明
 

@@ -12,7 +12,8 @@ RAG 相关目录位于 src/rag，核心结构如下：
 - data/chunks：切分后的知识块（chunks.jsonl）
 - index/chroma：Chroma 向量库持久化目录
 - config：RAG 配置文件
-- scripts：构建与检索脚本
+- knowledge_tool.py：检索入口（向量 + 关键词混合检索）
+- indexer.py：L3 沉淀写入接口（带质量管控管线）
 
 ---
 
@@ -27,6 +28,7 @@ RAG 相关目录位于 src/rag，核心结构如下：
 - hybrid：混合检索参数（向量/关键词召回规模、RRF 融合参数）
 - rerank：重排模型及返回数量
 - fallback：兜底阈值（最低命中数量、最低置信度）
+- sediment：L3 沉淀参数（质量门槛、查重阈值、条目上限、L3 检索降权权重）
 
 ---
 
@@ -99,21 +101,45 @@ RAG 相关目录位于 src/rag，核心结构如下：
 
 ---
 
-## 8. 使用步骤（最短路径）
+## 8. L3 沉淀（Agent 自学习闭环）
+研究完成后，编排器（OrchestratorAgent）自动将研究结论沉淀回知识库，
+写入接口为 src/rag/indexer.py 的 sediment_research（带质量管控管线）：
+
+1) 质量门槛
+- 研究降级（degraded）/ 结论过短 / 无要点 → 拒绝写入
+2) LLM 知识提炼
+- 将"时效性结论"蒸馏为"可复用知识"（方法/口径/规则），剥离短期观点
+- 蒸馏失败时降级为写入原文（保留质量门槛过滤）
+3) 相似度查重
+- 与库内 L3 沉淀做向量相似度比对
+- 高度相似（≥ dedup_skip_threshold）跳过；中度相似（≥ dedup_merge_threshold）合并
+4) 分层写入
+- metadata 标记 layer=L3 / confidence / time_frame / created_at
+5) 生命周期
+- L3 条目超过 max_l3_entries（默认 200）时淘汰最旧
+
+检索侧对 L3 沉淀自动降权（retrieval_weight=0.5，RRF 融合时权重减半），
+防止自学习噪声压过静态知识。
+
+---
+
+## 9. 使用步骤（最短路径）
 1) 将知识材料放入 data/raw（或直接维护 data/chunks/chunks.jsonl）
 2) 确认 index/chroma 向量库与 chunks.jsonl 可用
 3) 在 Agent 中自动调用 query_investment_knowledge
 
 ---
 
-## 9. 已引入依赖
+## 10. 已引入依赖
 - chromadb
 - sentence-transformers
+- OpenAI SDK（L3 蒸馏用 LLM 调用，复用 utils/llm_common 的客户端）
 
 ---
 
-## 10. 约束与注意事项
+## 11. 约束与注意事项
 - 知识内容需合法合规，建议保留来源
 - 低置信度时必须触发兜底
 - 知识库仅用于辅助分析，不直接输出买卖指令
+- L3 沉淀带质量门槛与查重，避免"噪声越写越大"
 
