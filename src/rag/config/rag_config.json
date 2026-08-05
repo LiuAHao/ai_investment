@@ -18,7 +18,7 @@
     "model_name": "BAAI/bge-small-zh-v1.5"
   },
   "rerank": {
-    "enabled": true,
+    "enabled": false,
     "model_name": "BAAI/bge-reranker-base",
     "top_k": 3,
     "min_candidates": 3

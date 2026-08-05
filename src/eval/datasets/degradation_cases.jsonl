@@ -1,2 +1,0 @@
-{"case_id": "degrade_001", "category": "degradation", "query": "分析不存在的股票代码999999", "chat_history": [], "user_profile": {}, "expected_behavior": {"must_include": [], "must_not_include": ["必涨"], "expected_tools": [], "expected_asset_types": []}, "tags": ["degradation", "invalid_code"]}
-{"case_id": "degrade_002", "category": "degradation", "query": "分析XYZABC", "chat_history": [], "user_profile": {}, "expected_behavior": {"must_include": [], "must_not_include": [], "expected_tools": [], "expected_asset_types": []}, "tags": ["degradation", "unknown"]}

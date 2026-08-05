@@ -3,7 +3,8 @@
 
 """
 SSE 事件流 API
-提供 V2 任务的实时事件推送
+提供多 Agent 任务的实时事件推送（无 auth 版本）。
+事件总线逻辑迁移至 services/event_bus.py，此处复用。
 """
 
 from __future__ import annotations
@@ -11,152 +12,81 @@ from __future__ import annotations
 import json
 import logging
 import queue
-import threading
 import time
 from typing import Any, Dict, Generator, Optional
 
-from flask import Blueprint, Response, jsonify, request
+from flask import Blueprint, Response, jsonify
 
-from api.auth import get_current_user
-from models import get_db
-from models.database import User
-from services.task_service import TaskService
-from utils.jwt_utils import decode_access_token
+from services.event_bus import emit_event  # noqa: F401  (re-export)
+from services.event_bus import event_bus
 
 logger = logging.getLogger(__name__)
 
 events_bp = Blueprint("events", __name__)
 
-
-class EventBus:
-    """事件总线"""
-
-    def __init__(self):
-        self._subscribers: Dict[str, list] = {}
-        self._lock = threading.Lock()
-
-    def subscribe(self, task_id: str) -> queue.Queue:
-        """订阅任务事件"""
-        q = queue.Queue()
-        with self._lock:
-            if task_id not in self._subscribers:
-                self._subscribers[task_id] = []
-            self._subscribers[task_id].append(q)
-        return q
-
-    def unsubscribe(self, task_id: str, q: queue.Queue) -> None:
-        """取消订阅"""
-        with self._lock:
-            if task_id in self._subscribers:
-                try:
-                    self._subscribers[task_id].remove(q)
-                except ValueError:
-                    pass
-                if not self._subscribers[task_id]:
-                    del self._subscribers[task_id]
-
-    def publish(self, task_id: str, event: Dict[str, Any]) -> None:
-        """发布事件"""
-        with self._lock:
-            subscribers = self._subscribers.get(task_id, [])
-            for q in subscribers:
-                try:
-                    q.put_nowait(event)
-                except queue.Full:
-                    pass
+# 任务快照注册表（供 SSE 重连补发）
+_task_snapshots: Dict[str, Dict[str, Any]] = {}
 
 
-event_bus = EventBus()
+def save_task_snapshot(task_id: str, snapshot: Dict[str, Any]) -> None:
+    """保存任务快照（供重连补发）"""
+    _task_snapshots[task_id] = snapshot
 
 
-def emit_event(task_id: str, event_type: str, data: Dict[str, Any] = None) -> None:
-    """
-    发射事件
-    
-    Args:
-        task_id: 任务ID
-        event_type: 事件类型
-        data: 事件数据
-    """
-    event = {
+def get_task_snapshot(task_id: str) -> Optional[Dict[str, Any]]:
+    """获取任务快照"""
+    return _task_snapshots.get(task_id)
+
+
+def _sse(event_type: str, data: Dict[str, Any]) -> str:
+    """格式化 SSE 数据帧（统一为 {type, data} 结构，与实时事件兼容）"""
+    payload = json.dumps({
         "type": event_type,
-        "task_id": task_id,
-        "timestamp": time.time(),
-        "data": data or {},
-    }
-    event_bus.publish(task_id, event)
+        "data": data,
+    }, ensure_ascii=False, default=str)
+    return f"event: {event_type}\ndata: {payload}\n\n"
 
 
 @events_bp.route("/events/<task_id>", methods=["GET"])
 def stream_events(task_id: str):
     """
     SSE 事件流
-    
-    事件类型：
-    - task_started: 任务开始
-    - node_started: 节点开始
-    - node_completed: 节点完成
-    - tool_started: 工具开始
-    - tool_completed: 工具完成
-    - evidence_added: 证据添加
-    - draft_created: 草稿创建
-    - critic_completed: 评审完成
-    - compliance_completed: 合规检查完成
-    - task_completed: 任务完成
-    - task_failed: 任务失败
-    """
-    user = get_current_user() or _get_user_from_query_token()
-    if not user:
-        return jsonify({"error": "未授权"}), 401
 
-    task = TaskService.get_task(task_id)
-    if not task:
-        return jsonify({"error": "任务不存在"}), 404
-    if task.user_id != user.id:
-        return jsonify({"error": "无权访问该任务"}), 403
+    事件类型：
+    - connected: 连接建立
+    - task_started / task_completed / task_failed
+    - orchestrator_thinking / orchestrator_decided
+    - agent_started / agent_thinking / tool_* / agent_*
+    - final_answer
+    - heartbeat: 30s 心跳保活
+    """
+    snapshot = get_task_snapshot(task_id)
 
     def generate() -> Generator[str, None, None]:
         q = event_bus.subscribe(task_id)
         try:
-            yield f"event: connected\ndata: {json.dumps({'task_id': task_id})}\n\n"
+            # 连接建立
+            yield _sse("connected", {"task_id": task_id})
 
-            if task.status in ("processing", "completed", "failed", "timeout"):
-                snapshot = {
-                    "type": "task_started",
-                    "task_id": task_id,
-                    "timestamp": time.time(),
-                    "data": {
-                        "task_id": task.task_id,
-                        "session_id": task.session_id,
-                        "status": task.status,
-                    },
-                }
-                yield f"event: task_started\ndata: {json.dumps(snapshot, ensure_ascii=False, default=str)}\n\n"
-
-            if task.status == "completed" and task.result:
-                completed_snapshot = {
-                    "type": "task_completed",
-                    "task_id": task_id,
-                    "timestamp": time.time(),
-                    "data": {
-                        "task_id": task.task_id,
-                        "session_id": task.session_id,
-                        "result": task.result,
-                    },
-                }
-                yield f"event: task_completed\ndata: {json.dumps(completed_snapshot, ensure_ascii=False, default=str)}\n\n"
+            # 任务已完成 → 补发快照
+            if snapshot and snapshot.get("status") == "completed":
+                yield _sse("task_completed", snapshot.get("result", {}))
                 return
-            
+            if snapshot and snapshot.get("status") == "failed":
+                yield _sse("task_failed", {"error": snapshot.get("error", "任务失败")})
+                return
+
+            # 实时事件
             while True:
                 try:
                     event = q.get(timeout=30)
                     event_json = json.dumps(event, ensure_ascii=False, default=str)
                     yield f"event: {event['type']}\ndata: {event_json}\n\n"
-                    
-                    if event['type'] in ('task_completed', 'task_failed'):
+
+                    if event["type"] in ("task_completed", "task_failed"):
                         break
                 except queue.Empty:
-                    yield f"event: heartbeat\ndata: {json.dumps({'timestamp': time.time()})}\n\n"
+                    yield _sse("heartbeat", {"timestamp": time.time()})
                 except GeneratorExit:
                     break
         finally:
@@ -164,24 +94,10 @@ def stream_events(task_id: str):
 
     return Response(
         generate(),
-        mimetype='text/event-stream',
+        mimetype="text/event-stream",
         headers={
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'X-Accel-Buffering': 'no',
-        }
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
-
-
-def _get_user_from_query_token() -> Optional[User]:
-    """EventSource 无法设置 Authorization header，允许通过 query token 鉴权"""
-    token = request.args.get("token")
-    if not token:
-        return None
-
-    payload = decode_access_token(token)
-    if not payload:
-        return None
-
-    with get_db() as db:
-        return db.query(User).filter_by(id=payload.get("user_id")).first()

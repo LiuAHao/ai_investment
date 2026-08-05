@@ -15,7 +15,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from agent.v2.state import Asset, AssetType
+from agents.state import Asset, AssetType
 
 logger = logging.getLogger(__name__)
 

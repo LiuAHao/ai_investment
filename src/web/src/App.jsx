@@ -1,182 +1,166 @@
-import React, { useState, useEffect } from 'react';
-import { TrendingUp } from 'lucide-react';
-import LandingView from './components/views/LandingView';
-import AuthView from './components/views/AuthView';
-import SettingsView from './components/views/SettingsView';
-import HistoryView from './components/views/HistoryView';
-import ResearchChatView from './components/research/ResearchChatView';
-import { FeedbackProvider } from './contexts/FeedbackContext';
-import ToastContainer from './components/ui/ToastContainer';
-import {
-  getAuthToken,
-  setAuthToken,
-  fetchProfile,
-} from './services/apiClient';
-import './App.css';
+import React, { useState } from 'react'
+import { Sparkles, History } from 'lucide-react'
+import { useAgentStream } from './hooks/useAgentStream'
+import AgentWorkspace from './components/agents/AgentWorkspace'
+import HistoryView from './components/views/HistoryView'
 
-export default function InvestmentAgentApp() {
-  const [viewState, setViewState] = useState('home');
-  const [currentUser, setCurrentUser] = useState(null);
+const RISK_OPTIONS = ['稳健型', '平衡型', '进取型']
+const SUGGESTIONS = [
+  '市场环境怎么样',
+  '分析一下贵州茅台',
+  '沪深300ETF 近期走势如何',
+  '中概互联板块现在怎么看',
+]
 
-  useEffect(() => {
-    const initAuth = async () => {
-      const token = getAuthToken();
-      if (!token) return;
-      try {
-        const profile = await fetchProfile();
-        setCurrentUser(profile);
-      } catch {
-        setAuthToken(null);
-      }
-    };
-    initAuth();
-  }, []);
+/** 空闲态品牌展示（内容区上方） */
+const Hero = ({ onPick }) => (
+  <section className="hero fade-in">
+    <div className="hero-kicker">AI MULTI-AGENT INVESTMENT RESEARCH</div>
+    <h1 className="hero-title">
+      多智能体 <em>投研</em> 工作台
+    </h1>
+    <p className="hero-desc">
+      输入一个投资问题，编排 Agent 会理解意图并按需调度
+      市场行情、新闻舆情、知识库三路调研智能体并行研究，
+      最后由总结 Agent 交叉验证、综合判断，输出结构化投研结论。
+    </p>
+    <div className="hero-suggests">
+      {SUGGESTIONS.map((s) => (
+        <button key={s} className="suggest-chip" onClick={() => onPick(s)}>
+          {s}
+        </button>
+      ))}
+    </div>
+  </section>
+)
 
-  const handleLogout = () => {
-    setViewState('home');
-    setCurrentUser(null);
-    setAuthToken(null);
-  };
+function App() {
+  const [view, setView] = useState('research') // research | history
+  const [query, setQuery] = useState('')
+  const [riskPreference, setRiskPreference] = useState('稳健型')
+  const [submitting, setSubmitting] = useState(false)
+  const stream = useAgentStream()
 
-  const handleAuthSuccess = async (token) => {
-    setAuthToken(token);
+  const { phase, orchestrator, agents, agentOrder, finalAnswer, error } = stream
+
+  const handleSubmit = async (e) => {
+    e?.preventDefault()
+    const text = query.trim()
+    if (!text || submitting) return
+    setSubmitting(true)
     try {
-      const profile = await fetchProfile();
-      setCurrentUser(profile);
-      setViewState('research');
-    } catch {
-      setAuthToken(null);
+      await stream.start(text, { riskPreference })
+    } finally {
+      setSubmitting(false)
     }
-  };
+  }
 
-  const isAppLayout = ['research', 'history', 'settings'].includes(viewState);
+  const handleNewChat = () => {
+    setQuery('')
+    stream.reset()
+  }
+
+  const disabled = submitting || phase === 'researching' || phase === 'orchestrating' || phase === 'summarizing'
 
   return (
-    <FeedbackProvider>
-      <div style={{ minHeight: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div className="app-shell">
+      {/* 顶部标头 */}
+      <header className="topbar">
+        <div className="brand">
+          <div className="brand-seal">研</div>
+          <div>
+            <div className="brand-name">AI<b>投资研究</b></div>
+            <div className="brand-sub">MULTI-AGENT INVESTMENT RESEARCH</div>
+          </div>
+        </div>
+        <nav className="topnav">
+          <button
+            className={`nav-btn ${view === 'research' ? 'active' : ''}`}
+            onClick={() => { setView('research'); stream.reset() }}
+          >
+            <Sparkles size={15} /> 新对话
+          </button>
+          <button
+            className={`nav-btn ${view === 'history' ? 'active' : ''}`}
+            onClick={() => setView('history')}
+          >
+            <History size={15} /> 历史记录
+          </button>
+        </nav>
+      </header>
 
-      {/* Home page - standalone layout */}
-      {viewState === 'home' && (
-        <LandingView
-          currentUser={currentUser}
-          onNavigate={setViewState}
-          onLogout={handleLogout}
-        />
-      )}
+      {/* 主内容区 */}
+      <main className="main-area">
+        {view === 'history' ? (
+          <HistoryView onBack={() => setView('research')} />
+        ) : (
+          <>
+            {/* 空闲态品牌展示（上方） */}
+            {phase === 'idle' && <Hero onPick={(s) => { setQuery(s); setView('research') }} />}
 
-      {/* Auth pages - standalone layout */}
-      {(viewState === 'login' || viewState === 'register') && (
-        <AuthView
-          viewState={viewState}
-          setViewState={setViewState}
-          onAuthSuccess={handleAuthSuccess}
-        />
-      )}
+            {/* 研究流程 */}
+            {phase !== 'idle' && (
+              <AgentWorkspace
+                phase={phase}
+                orchestrator={orchestrator}
+                agents={agents}
+                agentOrder={agentOrder}
+                finalAnswer={finalAnswer}
+                error={error}
+              />
+            )}
 
-      {/* App pages - shared header layout */}
-      {isAppLayout && (
-        <>
-          <header className="v2-header">
-            <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 24px', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }} onClick={() => setViewState('home')}>
-                <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-                  <rect width="28" height="28" rx="6" fill="url(#lg)" />
-                  <path d="M8 20V8l6 6 6-6v12" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-                  <defs>
-                    <linearGradient id="lg" x1="0" y1="0" x2="28" y2="28">
-                      <stop stopColor="#dc2626" />
-                      <stop offset="1" stopColor="#f97316" />
-                    </linearGradient>
-                  </defs>
-                </svg>
-                <span style={{ fontSize: 15, fontWeight: 600, letterSpacing: '-0.01em' }}>AI 投资研究</span>
+            {(phase === 'done' || phase === 'failed') && (
+              <div className="new-chat-bar">
+                <button onClick={handleNewChat} className="back-btn">
+                  ✦ 开始新对话
+                </button>
               </div>
+            )}
+          </>
+        )}
+      </main>
 
-              <nav style={{ display: 'flex', gap: 4 }}>
-                {[
-                  ['home', '首页'],
-                  ['research', '研究'],
-                  ['history', '历史'],
-                  ['settings', '设置'],
-                ].map(([key, label]) => (
+      {/* 底部常驻输入 Dock */}
+      {view === 'research' && (
+        <footer className="console-dock">
+          <section className="console">
+            <form className="console-form" onSubmit={handleSubmit}>
+              <div className="console-input-wrap">
+                <span className="console-prompt">▍</span>
+                <input
+                  className="console-input"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="输入你想研究的问题，如：市场环境怎么样 / 分析一下贵州茅台"
+                  disabled={disabled}
+                />
+              </div>
+              <div className="risk-group">
+                {RISK_OPTIONS.map((r) => (
                   <button
-                    key={key}
-                    onClick={() => setViewState(key)}
-                    style={{
-                      padding: '6px 14px',
-                      borderRadius: 6,
-                      fontSize: 13,
-                      fontWeight: 500,
-                      color: viewState === key ? 'var(--text)' : 'var(--text3)',
-                      background: viewState === key ? 'rgba(220, 38, 38, 0.12)' : 'transparent',
-                    }}
+                    type="button"
+                    key={r}
+                    className={`risk-pill ${riskPreference === r ? 'active' : ''}`}
+                    onClick={() => setRiskPreference(r)}
                   >
-                    {label}
+                    {r}
                   </button>
                 ))}
-              </nav>
-
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                {currentUser ? (
-                  <>
-                    <span style={{ fontSize: 13, color: 'var(--text2)' }}>
-                      {currentUser.nickname || currentUser.username}
-                    </span>
-                    <button
-                      onClick={handleLogout}
-                      style={{
-                        padding: '6px 16px',
-                        borderRadius: 6,
-                        fontSize: 13,
-                        color: 'var(--text2)',
-                        border: '1px solid var(--border)',
-                      }}
-                    >
-                      退出
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      onClick={() => setViewState('login')}
-                      style={{
-                        padding: '6px 16px',
-                        borderRadius: 6,
-                        fontSize: 13,
-                        color: 'var(--text2)',
-                        border: '1px solid var(--border)',
-                      }}
-                    >
-                      登录
-                    </button>
-                    <button
-                      onClick={() => setViewState('research')}
-                      style={{
-                        padding: '6px 16px',
-                        borderRadius: 6,
-                        fontSize: 13,
-                        fontWeight: 600,
-                        background: 'linear-gradient(135deg, var(--red), var(--orange))',
-                        color: '#fff',
-                      }}
-                    >
-                      开始研究
-                    </button>
-                  </>
-                )}
               </div>
+              <button type="submit" className="run-btn" disabled={!query.trim() || disabled}>
+                <Sparkles size={16} />
+                {submitting ? '研究中…' : '开始研究'}
+              </button>
+            </form>
+            <div className="console-hint">
+              编排 Agent 将按需调度市场 / 新闻 / 知识三路调研智能体并行研究，最终汇成投研报告
             </div>
-          </header>
-
-          <main style={{ flex: 1, maxWidth: viewState === 'research' ? 'none' : 1200, margin: '0 auto', padding: viewState === 'research' ? 0 : '32px 24px 80px', width: '100%' }}>
-            {viewState === 'research' && <ResearchChatView />}
-            {viewState === 'history' && <HistoryView onNavigate={setViewState} />}
-            {viewState === 'settings' && <SettingsView />}
-          </main>
-        </>
+          </section>
+        </footer>
       )}
-      </div>
-      <ToastContainer />
-    </FeedbackProvider>
-  );
+    </div>
+  )
 }
+
+export default App

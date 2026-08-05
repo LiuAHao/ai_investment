@@ -4,13 +4,15 @@
 """
 美股工具
 提供美股行情数据
+数据源说明：tushare 的 us_daily/us_basic 接口在当前 token 权限下不可用，
+因此美股行情保留 akshare（stock_us_spot_em / stock_us_daily）作为主数据源。
 """
 
 from __future__ import annotations
 
 from typing import Any, Dict
 
-from agent.v2.state import AssetType
+from agents.state import AssetType
 from tools.base import BaseTool, CostLevel, RiskLevel
 
 

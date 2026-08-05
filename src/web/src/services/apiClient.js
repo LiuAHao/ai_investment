@@ -1,260 +1,83 @@
 /**
- * API 客户端
- * 封装 fetch 请求，自动附加 JWT token
+ * 统一 API 客户端
+ * 封装 Agent 研究提交、SSE 事件流、会话历史接口。
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001';
-
-let authToken = localStorage.getItem('auth_token');
-let feedbackHandler = null;
-
-export function setFeedbackHandler(handler) {
-  feedbackHandler = handler;
-}
-
-export function getAuthToken() {
-  return authToken;
-}
-
-export function setAuthToken(token) {
-  authToken = token;
-  if (token) {
-    localStorage.setItem('auth_token', token);
-  } else {
-    localStorage.removeItem('auth_token');
-  }
-}
+const API_BASE = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE || 'http://localhost:5001'
 
 async function request(path, options = {}) {
-  const url = `${API_BASE_URL}${path}`;
-  const body = options.body && typeof options.body === 'object'
-    ? JSON.stringify(options.body)
-    : options.body;
-  const headers = {
-    'Content-Type': 'application/json',
-    ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-    ...(options.headers || {}),
-  };
-
-  // 显示加载状态
-  const loadingKey = options.loadingKey || path;
-  if (feedbackHandler?.setLoading) {
-    feedbackHandler.setLoading(loadingKey, true);
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error || `请求失败 (${res.status})`)
   }
-
-  try {
-    const response = await fetch(url, {
-      ...options,
-      headers,
-      body,
-    });
-
-    const data = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      const errorMsg = data?.error || data?.message || '请求失败';
-      
-      // 显示错误提示
-      if (feedbackHandler?.showError) {
-        feedbackHandler.showError(errorMsg);
-      }
-      
-      throw new Error(errorMsg);
-    }
-
-    // 显示成功提示（如果配置了）
-    if (options.successMessage && feedbackHandler?.showSuccess) {
-      feedbackHandler.showSuccess(options.successMessage);
-    }
-
-    return data;
-  } catch (error) {
-    // 网络错误处理
-    if (error.name === 'TypeError' && error.message === 'Failed to fetch') {
-      const networkError = '网络连接失败，请检查网络设置';
-      if (feedbackHandler?.showError) {
-        feedbackHandler.showError(networkError);
-      }
-    }
-    
-    throw error;
-  } finally {
-    // 隐藏加载状态
-    if (feedbackHandler?.setLoading) {
-      feedbackHandler.setLoading(loadingKey, false);
-    }
-  }
+  return res.json()
 }
 
-// 认证相关
-export async function register(username, password, email) {
-  return request('/api/auth/register', {
+export function submitQuery(query, { riskPreference = '', sessionId = '' } = {}) {
+  return request('/api/agent/query', {
     method: 'POST',
-    body: { username, password, email },
-    successMessage: '注册成功！',
-  });
-}
-
-export async function login(username, password) {
-  return request('/api/auth/login', {
-    method: 'POST',
-    body: { username, password },
-    successMessage: '登录成功！',
-  });
-}
-
-export async function fetchProfile() {
-  return request('/api/user/profile');
-}
-
-export async function updateProfile(data) {
-  return request('/api/user/profile', {
-    method: 'PUT',
-    body: data,
-    successMessage: '个人信息更新成功！',
-  });
-}
-
-export async function updatePhone(phone) {
-  return request('/api/user/phone', {
-    method: 'PUT',
-    body: { phone },
-    successMessage: '手机号更新成功！',
-  });
-}
-
-export async function updatePassword(currentPassword, newPassword) {
-  return request('/api/user/password', {
-    method: 'PUT',
-    body: { current_password: currentPassword, new_password: newPassword },
-    successMessage: '密码更新成功！',
-  });
-}
-
-// 配额相关
-export async function getQuota() {
-  return request('/api/user/quota');
-}
-
-export async function getTiers() {
-  return request('/api/user/tiers');
-}
-
-export async function upgradeTier(tier) {
-  return request('/api/user/upgrade', {
-    method: 'POST',
-    body: { tier },
-    successMessage: `已升级到${tier}！`,
-  });
-}
-
-// 股票相关
-export async function analyzeStock(symbol) {
-  return request(`/api/stock/analyze?symbol=${encodeURIComponent(symbol)}`, {
-    loadingKey: `stock-${symbol}`,
-  });
-}
-
-export async function getStockTechnical(symbol) {
-  return request(`/api/stock/technical?symbol=${encodeURIComponent(symbol)}`);
-}
-
-export async function getStockHistory(symbol, days = 30) {
-  return request(`/api/stock/history?symbol=${encodeURIComponent(symbol)}&days=${days}`);
-}
-
-export async function getStockSummary(symbol) {
-  return request(`/api/stock/summary?symbol=${encodeURIComponent(symbol)}`);
-}
-
-// 新闻相关
-export async function getNewsTitles(limit = 20) {
-  return request(`/api/news/titles?limit=${limit}`);
-}
-
-export async function filterNews(keywords) {
-  return request('/api/news/filter', {
-    method: 'POST',
-    body: { keywords },
-  });
-}
-
-export async function getRelevantNews(query) {
-  return request('/api/news/relevant', {
-    method: 'POST',
-    body: { query },
-  });
-}
-
-// 聊天相关
-export async function sendMessage(message, sessionId = null) {
-  return request('/api/chat/send', {
-    method: 'POST',
-    body: { message, session_id: sessionId },
-  });
-}
-
-export async function getChatHistory(sessionId) {
-  return request(`/api/chat/history?session_id=${sessionId}`);
-}
-
-export async function getChatSessions() {
-  return request('/api/chat/sessions');
-}
-
-export async function clearChatHistory(sessionId) {
-  return request('/api/chat/clear', {
-    method: 'DELETE',
-    body: { session_id: sessionId },
-    successMessage: '聊天历史已清空',
-  });
-}
-
-export async function askQuestion(question) {
-  return request('/api/chat/ask', {
-    method: 'POST',
-    body: { question },
-  });
-}
-
-// 反馈相关
-export async function submitFeedback(sessionId, feedbackData) {
-  return request('/api/feedback', {
-    method: 'POST',
-    body: {
+    body: JSON.stringify({
+      query,
+      risk_preference: riskPreference,
       session_id: sessionId,
-      ...feedbackData,
-    },
-    successMessage: '反馈提交成功！',
-  });
+    }),
+  })
 }
 
-export async function getFeedback(sessionId) {
-  return request(`/api/feedback/${sessionId}`);
+export function getHistory() {
+  return request('/api/history')
 }
 
-// 评测相关
-export async function getEvalRuns() {
-  return request('/api/eval/runs');
+export function getSessionHistory(sessionId) {
+  return request(`/api/history/${sessionId}`)
 }
 
-// V2 API 相关
-export async function submitV2Query(query, sessionId = null, preferences = {}) {
-  return request('/api/agent/v2/query', {
-    method: 'POST',
-    body: { query, session_id: sessionId, preferences },
-    loadingKey: 'v2-query',
-  });
-}
+/**
+ * 订阅 Agent 研究事件流（SSE）
+ * @param {string} taskId 任务 ID
+ * @param {(event: {type: string, data: any}) => void} onEvent 事件回调
+ * @returns {{close: () => void}} 控制对象
+ */
+export function subscribeAgentEvents(taskId, onEvent) {
+  const source = new EventSource(`${API_BASE}/api/agent/events/${taskId}`)
+  // 后端 SSE 帧: data = {type, task_id, timestamp, data: {业务数据}}
+  // 这里统一解包为 onEvent({ type, data: 业务数据 })
+  const handlers = {
+    connected: (e) => onEvent({ type: 'connected', data: e.data || {} }),
+    task_started: (e) => onEvent({ type: 'task_started', data: e.data || {} }),
+    orchestrator_thinking: (e) => onEvent({ type: 'orchestrator_thinking', data: e.data || {} }),
+    orchestrator_decided: (e) => onEvent({ type: 'orchestrator_decided', data: e.data || {} }),
+    agent_started: (e) => onEvent({ type: 'agent_started', data: e.data || {} }),
+    agent_thinking: (e) => onEvent({ type: 'agent_thinking', data: e.data || {} }),
+    tool_started: (e) => onEvent({ type: 'tool_started', data: e.data || {} }),
+    tool_completed: (e) => onEvent({ type: 'tool_completed', data: e.data || {} }),
+    tool_failed: (e) => onEvent({ type: 'tool_failed', data: e.data || {} }),
+    agent_failed: (e) => onEvent({ type: 'agent_failed', data: e.data || {} }),
+    agent_completed: (e) => onEvent({ type: 'agent_completed', data: e.data || {} }),
+    final_answer: (e) => onEvent({ type: 'final_answer', data: e.data || {} }),
+    task_completed: (e) => onEvent({ type: 'task_completed', data: e.data || {} }),
+    task_failed: (e) => onEvent({ type: 'task_failed', data: e.data || {} }),
+  }
 
-export async function getV2TaskStatus(taskId) {
-  return request(`/api/agent/v2/status/${taskId}`);
-}
+  Object.entries(handlers).forEach(([type, handler]) => {
+    source.addEventListener(type, (msg) => {
+      try {
+        handler(JSON.parse(msg.data))
+      } catch {
+        /* 忽略解析失败 */
+      }
+    })
+  })
 
-export async function getV2Session(sessionId) {
-  return request(`/api/agent/v2/session/${sessionId}`);
-}
+  source.onerror = () => {
+    // EventSource 自动重连
+  }
 
-export async function v2HealthCheck() {
-  return request('/api/agent/v2/health');
+  return {
+    close: () => source.close(),
+  }
 }

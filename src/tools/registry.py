@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from agent.v2.state import AssetType, ToolResult
+from agents.state import AssetType, ToolResult
 from tools.base import BaseTool, RegisteredTool, ToolSpec
 
 logger = logging.getLogger(__name__)
@@ -101,11 +101,12 @@ class ToolRegistry:
         return [tool for _, tool in results]
 
     def execute(self, name: str, params: Dict[str, Any]) -> ToolResult:
-        """执行指定工具"""
+        """执行指定工具（自动类型转换 LLM 字符串参数）"""
         tool = self.get(name)
         if not tool:
             raise ValueError(f"工具 {name} 未注册")
-        return tool.execute(**params)
+        coerced = tool.handler.coerce_params(params or {})
+        return tool.execute(**coerced)
 
 
 _global_registry: Optional[ToolRegistry] = None
@@ -122,19 +123,19 @@ def get_tool_registry() -> ToolRegistry:
 
 def _register_default_tools(registry: ToolRegistry) -> None:
     """注册默认工具"""
+    from tools.asset_tools import AssetResolveTool
     from tools.stock_tools import StockDataTool, StockSpotTool
     from tools.news_tools import NewsSearchTool
     from tools.knowledge_tools import KnowledgeQueryTool
-    from tools.analysis_tools import AnalysisTool
     from tools.fund_tools import FundNavTool, FundProfileTool
     from tools.etf_tools import EtfProfileTool, EtfTrackingTool
     from tools.us_stock_tools import UsStockQuoteTool, UsStockHistoryTool
 
+    registry.register(AssetResolveTool())
     registry.register(StockDataTool())
     registry.register(StockSpotTool())
     registry.register(NewsSearchTool())
     registry.register(KnowledgeQueryTool())
-    registry.register(AnalysisTool())
 
     registry.register(FundProfileTool())
     registry.register(FundNavTool())

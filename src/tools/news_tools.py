@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from agent.v2.state import AssetType
+from agents.state import AssetType
 from tools.base import BaseTool, CostLevel, RiskLevel
 
 
@@ -31,6 +31,11 @@ class NewsSearchTool(BaseTool):
     risk_level = RiskLevel.LOW
 
     def execute(self, keywords: List[str], limit: int = 5, **kwargs) -> Dict[str, Any]:
-        from agent.news_agent import NewsAgent
+        from data.news_client import NewsAgent
         agent = NewsAgent()
+        # LLM 传参可能是字符串数字，统一转 int
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            limit = 5
         return agent.get_relevant_titles(keywords=keywords, limit=limit, web_limit=limit)

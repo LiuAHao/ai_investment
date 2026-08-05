@@ -13,15 +13,14 @@
 # 安装依赖
 pip install -r requirements.txt
 
-# 运行主应用(启动前端开发服务器)
-python run.py
+# 启动后端（默认端口 5001）
+python run.py --backend
 
-# 运行单个测试文件
-python -m pytest src/agent/test_master_agent.py -v
-python src/agent/test_master_agent.py
+# 启动前端开发服务器
+python run.py --frontend
 
-# 运行所有测试
-python -m pytest tests/ -v
+# 验证后端可启动（导入检查）
+PYTHONPATH=src python -c "from api.main import create_app; create_app()"
 ```
 
 ### React前端 (src/web目录)
@@ -69,8 +68,9 @@ import requests
 import pandas as pd
 
 # 本地模块导入
-from agent.news_agent import NewsAgent
-from stock.stock_api import get_stock_data
+from agents.orchestrator import OrchestratorAgent
+from agents.state import Asset, AgentTask
+from tools.registry import get_tool_registry
 ```
 
 #### 命名约定
@@ -160,23 +160,26 @@ export default CustomComponent;
 ```
 ai_investment/
 ├── src/
-│   ├── agent/          # Agent模块
-│   │   ├── master_agent.py      # 主控Agent
-│   │   ├── news_agent.py        # 新闻Agent
-│   │   ├── stock_agent.py       # 股票Agent
-│   │   └── test_master_agent.py # 测试文件
-│   ├── news/           # 新闻数据模块
-│   │   ├── news_api.py
-│   │   └── test_news_api.py
-│   ├── stock/          # 股票数据模块
-│   │   ├── stock_api.py
-│   │   └── test_akshare_api.py
+│   ├── agents/         # ★ 多Agent核心
+│   │   ├── orchestrator.py     # 总编排Agent
+│   │   ├── base.py             # BaseReActAgent基类
+│   │   ├── loop.py             # ReAct循环执行器
+│   │   ├── research/           # 调研Agent（market/news/knowledge）
+│   │   ├── summary_agent.py    # 总结分析Agent
+│   │   ├── state.py            # 状态模型
+│   │   ├── events.py           # 事件发射
+│   │   └── memory.py           # 内存会话
+│   ├── api/            # Flask API
+│   │   ├── main.py
+│   │   ├── events.py   # SSE事件流
+│   │   └── routes/     # agent/history路由
+│   ├── asset/          # 资产主数据与解析
+│   ├── tools/          # 工具层（11个工具）
+│   ├── data/           # 数据源（行情/新闻）
+│   ├── rag/            # RAG知识库（检索+L3沉淀）
+│   ├── services/       # 事件总线等
+│   ├── utils/          # LLM客户端、联网搜索
 │   └── web/            # React前端
-│       ├── src/
-│       │   ├── App.jsx
-│       │   └── ...
-│       ├── package.json
-│       └── vite.config.js
 ├── requirements.txt    # Python依赖
 └── run.py             # 主启动脚本
 ```

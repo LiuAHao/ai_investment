@@ -44,13 +44,22 @@ class RagKnowledgeBase:
         self._client = chromadb.PersistentClient(path=str(chroma_dir))
         self._collection = self._client.get_or_create_collection(name=collection_name)
 
+        # 向量模型加载失败时降级为纯关键词检索（不影响整体可用性）
         model_name = str(self._config["embedding"]["model_name"])
         local_only = bool(self._config.get("hf", {}).get("local_files_only", False))
-        self._embedder = SentenceTransformer(model_name, local_files_only=local_only)
+        try:
+            self._embedder = SentenceTransformer(model_name, local_files_only=local_only)
+        except Exception as exc:
+            logger.warning("embedding 模型加载失败，降级为纯关键词检索: %s", exc)
+            self._embedder = None
 
-        if bool(self._config["rerank"]["enabled"]):
-            rerank_model = str(self._config["rerank"]["model_name"])
-            self._reranker = CrossEncoder(rerank_model, local_files_only=local_only)
+        if self._embedder is not None and bool(self._config["rerank"]["enabled"]):
+            try:
+                rerank_model = str(self._config["rerank"]["model_name"])
+                self._reranker = CrossEncoder(rerank_model, local_files_only=local_only)
+            except Exception as exc:
+                logger.warning("rerank 模型加载失败，跳过重排: %s", exc)
+                self._reranker = None
 
         chunks_dir = base_dir / self._config["data"]["chunks_dir"]
         chunks_path = chunks_dir / "chunks.jsonl"
@@ -184,15 +193,23 @@ class RagKnowledgeBase:
         if cached is not None:
             return cached
 
-        assert self._embedder is not None
-        assert self._collection is not None
-
         config_top_k = int(self._config["query"]["top_k"])
         limit = int(top_k or config_top_k)
         hybrid_enabled = bool(self._config.get("hybrid", {}).get("enabled", False))
         vector_top_k = int(self._config.get("hybrid", {}).get("vector_top_k", limit))
         keyword_top_k = int(self._config.get("hybrid", {}).get("keyword_top_k", limit))
         rrf_k = int(self._config.get("hybrid", {}).get("rrf_k", 60))
+
+        # embedding 不可用 → 纯关键词检索降级
+        if self._embedder is None or self._collection is None:
+            keyword_items = self._keyword_rank(query, keyword_top_k)
+            items = keyword_items[:limit]
+            if bool(self._config["rerank"]["enabled"]) and self._reranker is not None:
+                try:
+                    items = self._rerank_items(query, items, top_k=limit)
+                except Exception:
+                    pass
+            return self._build_result(query, items, hybrid=False)
 
         query_embedding = self._embedder.encode([query], normalize_embeddings=True).tolist()[0]
         result = self._collection.query(query_embeddings=[query_embedding], n_results=vector_top_k)
@@ -219,9 +236,13 @@ class RagKnowledgeBase:
         if bool(self._config["rerank"]["enabled"]):
             rerank_top_k = int(self._config["rerank"]["top_k"])
             min_candidates = int(self._config["rerank"].get("min_candidates", 2))
-            if len(items) >= min_candidates and len(query) >= 2:
+            if len(items) >= min_candidates and len(query) >= 2 and self._reranker is not None:
                 items = self._rerank(query, items, rerank_top_k)
 
+        return self._build_result(query, items, hybrid=hybrid_enabled, cache_key=cache_key)
+
+    def _build_result(self, query: str, items: List[Dict[str, Any]], hybrid: bool = True, cache_key: str = "") -> Dict[str, Any]:
+        """构建统一检索结果（含兜底判断）"""
         min_results = int(self._config.get("fallback", {}).get("min_results", 1))
         min_score = float(self._config.get("fallback", {}).get("min_score", 0.0))
         top_score = float(items[0].get("rrf_score", 0.0)) if items else 0.0
@@ -243,8 +264,10 @@ class RagKnowledgeBase:
             "citations": citations,
             "fallback": fallback,
             "message": "知识库覆盖不足" if fallback else "",
+            "mode": "keyword_only" if (self._embedder is None or self._collection is None) else ("hybrid" if hybrid else "vector"),
         }
-        self._set_cache(cache_key, payload)
+        if cache_key:
+            self._set_cache(cache_key, payload)
         return payload
 
 

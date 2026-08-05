@@ -8,9 +8,13 @@
 from typing import List, Dict, Optional
 import logging
 import os
+import threading
 from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
+
+# DDGS 不支持并发调用，用进程内锁串行化
+_SEARCH_LOCK = threading.Lock()
 
 
 @contextmanager
@@ -50,6 +54,12 @@ def search_web(query: str, max_results: int = 5, region: Optional[str] = None) -
     if not query:
         return []
 
+    # 兼容调用方传入字符串数字（如 LLM 工具参数 "5"）
+    try:
+        max_results = int(max_results)
+    except (TypeError, ValueError):
+        max_results = 5
+
     try:
         from ddgs import DDGS
     except Exception:
@@ -64,15 +74,16 @@ def search_web(query: str, max_results: int = 5, region: Optional[str] = None) -
     use_region = region or os.getenv("DDGS_REGION") or "cn-zh"
 
     try:
-        with _without_proxy(disable_proxy), DDGS() as ddgs:
-            for item in ddgs.text(query, max_results=max_results, region=use_region):
-                if not item:
-                    continue
-                results.append({
-                    "title": item.get("title") or "",
-                    "link": item.get("href") or item.get("url") or "",
-                    "snippet": item.get("body") or item.get("snippet") or "",
-                })
+        with _SEARCH_LOCK:
+            with _without_proxy(disable_proxy), DDGS() as ddgs:
+                for item in ddgs.text(query, max_results=max_results, region=use_region):
+                    if not item:
+                        continue
+                    results.append({
+                        "title": item.get("title") or "",
+                        "link": item.get("href") or item.get("url") or "",
+                        "snippet": item.get("body") or item.get("snippet") or "",
+                    })
     except Exception as e:
         logger.error("联网搜索失败: %s", e)
         return []

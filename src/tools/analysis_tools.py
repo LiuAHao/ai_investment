@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from agent.v2.state import AssetType
+from agents.state import AssetType
 from tools.base import BaseTool, CostLevel, RiskLevel
 
 

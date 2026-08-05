@@ -1,104 +1,92 @@
-import React, { useState, useEffect } from 'react';
-import { getAuthToken, getChatSessions } from '../../services/apiClient';
+import React, { useCallback, useEffect, useState } from 'react'
+import { ArrowLeft } from 'lucide-react'
+import { getHistory, getSessionHistory } from '../../services/apiClient'
+import TurnDetail from '../agents/TurnDetail'
 
-const HistoryView = ({ onNavigate }) => {
-  const [sessions, setSessions] = useState([]);
-  const [loading, setLoading] = useState(true);
+const HistoryView = ({ onBack }) => {
+  const [sessions, setSessions] = useState([])
+  const [active, setActive] = useState(null)
+  const [turns, setTurns] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [detailLoading, setDetailLoading] = useState(false)
 
-  useEffect(() => {
-    const loadSessions = async () => {
-      if (!getAuthToken()) {
-        setLoading(false);
-        return;
-      }
-      try {
-        const data = await getChatSessions();
-        setSessions(data.sessions || []);
-      } catch {
-        setSessions([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadSessions();
-  }, []);
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const { sessions } = await getHistory()
+      setSessions(sessions || [])
+    } catch {
+      setSessions([])
+    } finally {
+      setLoading(false)
+    }
+  }, [])
 
-  const formatDate = (dateStr) => {
-    if (!dateStr) return '';
-    const date = new Date(dateStr);
-    return date.toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
+  useEffect(() => { load() }, [load])
 
-  if (loading) {
+  const openSession = async (sessionId) => {
+    setActive(sessionId)
+    setDetailLoading(true)
+    try {
+      const { turns } = await getSessionHistory(sessionId)
+      setTurns(turns || [])
+    } catch {
+      setTurns([])
+    } finally {
+      setDetailLoading(false)
+    }
+  }
+
+  if (active) {
     return (
       <div>
-        <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 32, letterSpacing: '-0.02em' }}>历史研究</h1>
-        <div style={{ textAlign: 'center', padding: '80px 0', color: 'var(--text3)' }}>加载中...</div>
+        <div className="history-view-head">
+          <button className="back-btn" onClick={() => { setActive(null); setTurns([]) }}>
+            <ArrowLeft size={15} /> 返回列表
+          </button>
+          <h2>会话详情</h2>
+        </div>
+        {detailLoading && <div className="empty-state">加载中...</div>}
+        {!detailLoading && turns.length === 0 && (
+          <div className="empty-state">
+            <div className="empty-state-title">空会话</div>
+            该会话暂无记录
+          </div>
+        )}
+        {turns.map((turn, i) => (
+          <TurnDetail key={i} turn={turn} />
+        ))}
       </div>
-    );
+    )
   }
 
   return (
     <div>
-      <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 32, letterSpacing: '-0.02em' }}>历史研究</h1>
-
-      {sessions.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '80px 0' }}>
-          <p style={{ color: 'var(--text3)', fontSize: 16 }}>暂无研究记录</p>
-          <button
-            onClick={() => onNavigate('research')}
-            style={{
-              marginTop: 20, padding: '12px 32px', borderRadius: 8, fontSize: 15, fontWeight: 600,
-              background: 'linear-gradient(135deg, var(--red), var(--orange))', color: '#fff',
-            }}
-          >
-            开始第一次研究
-          </button>
-        </div>
-      ) : (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
-          gap: 16,
-        }}>
-          {sessions.map((session) => (
-            <div
-              key={session.session_id}
-              className="history-card"
-              onClick={() => onNavigate('research')}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                <h3 style={{ fontSize: 16, fontWeight: 600 }}>
-                  {session.query || '—'}
-                </h3>
-                <span style={{ fontSize: 12, color: 'var(--text3)', fontFamily: 'ui-monospace, monospace' }}>
-                  {formatDate(session.created_at).split(' ')[0]}
-                </span>
-              </div>
-              <div style={{ display: 'flex', gap: 8, fontSize: 12, color: 'var(--text3)', marginBottom: 12 }}>
-                <span>{session.turn_count ? `${session.turn_count} 轮研究` : '—'}</span>
-                <span>·</span>
-                <span>{session.asset || '—'}</span>
-              </div>
-              <p style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 12, lineHeight: 1.5 }}>
-                {session.query || ''}
-              </p>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <span className="v2-tag">{session.risk_pref || '—'}</span>
-                <span className="v2-tag">{session.period || '—'}</span>
-              </div>
-            </div>
-          ))}
+      <div className="history-view-head">
+        <button className="back-btn" onClick={onBack}>
+          <ArrowLeft size={15} /> 返回研究
+        </button>
+        <h2>历史记录</h2>
+      </div>
+      {loading && <div className="empty-state">加载中...</div>}
+      {!loading && sessions.length === 0 && (
+        <div className="empty-state">
+          <div className="empty-state-title">暂无历史会话</div>
+          （内存态会话，重启服务后清空）
         </div>
       )}
+      <div className="history-list">
+        {sessions.map((s) => (
+          <div key={s.session_id} className="history-item" onClick={() => openSession(s.session_id)}>
+            <div className="history-title">{s.title}</div>
+            <div className="history-meta">
+              {s.turn_count} 轮 · {s.updated_at?.slice(0, 19).replace('T', ' ')}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
-  );
-};
+  )
+}
 
-export default HistoryView;
+export default HistoryView
