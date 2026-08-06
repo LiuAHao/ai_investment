@@ -77,7 +77,7 @@ class BaseReActAgent:
             shared_pool: 共享发现池（P0 信息共享，可选）
         """
         self.shared_pool = shared_pool
-        events.agent_started(self.task_id, self.name, task.goal, task.goal)
+        events.agent_started(self.task_id, self.name, task.goal, task.goal, round=1)
 
         loop = ReActLoop(
             client=self._get_client(),
@@ -97,6 +97,7 @@ class BaseReActAgent:
                 self.task_id, self.name,
                 result_summary=result.conclusion,
                 evidence_refs=result.evidence_refs,
+                round=1,
             )
             return result
         except Exception as e:
@@ -136,7 +137,7 @@ class BaseReActAgent:
         except Exception:
             findings_text = ""
 
-        events.agent_started(self.task_id, self.name, f"{task.goal}（补充调研）", task.goal)
+        events.agent_started(self.task_id, self.name, f"{task.goal}（补充调研）", task.goal, round=2)
 
         loop = ReActLoop(
             client=self._get_client(),
@@ -156,6 +157,7 @@ class BaseReActAgent:
                 self.task_id, self.name,
                 result_summary=result.conclusion,
                 evidence_refs=result.evidence_refs,
+                round=2,
             )
             return result
         except Exception as e:

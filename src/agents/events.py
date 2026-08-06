@@ -36,8 +36,8 @@ def orchestrator_decided(task_id: str, plan: list, reason: str) -> None:
     _emit(task_id, "orchestrator_decided", {"plan": plan, "reason": reason})
 
 
-def agent_started(task_id: str, agent: str, task: str, goal: str) -> None:
-    _emit(task_id, "agent_started", {"agent": agent, "task": task, "goal": goal})
+def agent_started(task_id: str, agent: str, task: str, goal: str, round: int = 1) -> None:
+    _emit(task_id, "agent_started", {"agent": agent, "task": task, "goal": goal, "round": round})
 
 
 def agent_thinking(task_id: str, agent: str, thought: str) -> None:
@@ -73,11 +73,12 @@ def agent_failed(task_id: str, agent: str, error: str) -> None:
     _emit(task_id, "agent_failed", {"agent": agent, "error": error})
 
 
-def agent_completed(task_id: str, agent: str, result_summary: str, evidence_refs: list) -> None:
+def agent_completed(task_id: str, agent: str, result_summary: str, evidence_refs: list, round: int = 1) -> None:
     _emit(task_id, "agent_completed", {
         "agent": agent,
         "result_summary": result_summary,
         "evidence_refs": evidence_refs,
+        "round": round,
     })
 
 

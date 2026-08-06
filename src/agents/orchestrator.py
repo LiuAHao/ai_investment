@@ -292,10 +292,6 @@ class OrchestratorAgent:
         else:
             events.orchestrator_thinking(self.task_id, "第一轮调研完成，无共享发现，跳过补充调研")
 
-        # ---------- 第二轮：补充调研（注入完整池） ----------
-        if not full_findings:
-            return first_results
-
         def _second_round(agent: Any) -> AgentResult:
             return agent.supplement(tasks[agent.name], shared_pool=shared_pool, full_findings=full_findings)
 

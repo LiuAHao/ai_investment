@@ -54,6 +54,7 @@ class ReActLoop:
         emit_thinking: bool = True,
         temperature: float = 0.3,
         shared_pool: Optional["SharedFindingsPool"] = None,
+        max_tokens: int = 8192,
     ):
         self.client = client
         self.model = model
@@ -65,6 +66,7 @@ class ReActLoop:
         self.max_iterations = max_iterations
         self.emit_thinking = emit_thinking
         self.temperature = temperature
+        self.max_tokens = max_tokens
         self.shared_pool = shared_pool  # 共享发现池（可为 None，单 Agent 场景）
         self._pool_cursor = 0  # 已注入到本循环的池游标
         self._tools_supported: Optional[bool] = None  # 缓存 function calling 支持性
@@ -201,7 +203,7 @@ class ReActLoop:
                 model=self.model,
                 messages=self.messages,
                 temperature=self.temperature,
-                max_tokens=8192,
+                max_tokens=self.max_tokens,
             )
             content = getattr(response.choices[0].message, "content", None) or ""
         except Exception as e:
@@ -216,8 +218,13 @@ class ReActLoop:
                 self._handle_tool_call(decision.get("tool", ""), decision.get("params", {}))
             return self._build_result(content)
 
-        # 兜底：LLM 调用失败时拼接思考日志
-        conclusion = "\n".join(self.thinking_log[-3:]) or "分析达到迭代上限，返回已有信息。"
+        # 兜底：LLM 调用失败时返回简短收敛说明（不再拼接思考日志，
+        # 避免前端 thinking_log 与 conclusion 重复展示）
+        conclusion = "分析达到迭代上限，基于已有工具结果收敛。请查看上方思考与工具记录。"
+        if self.thinking_log:
+            last_thought = self.thinking_log[-1]
+            if last_thought and not last_thought.startswith("收敛"):
+                conclusion = f"已收敛。最后思考：{last_thought}"
         return AgentResult(
             agent_name=self.agent_name,
             conclusion=conclusion,
@@ -242,7 +249,7 @@ class ReActLoop:
                 tools=self._tool_schemas_for_api(),
                 tool_choice="auto",
                 temperature=self.temperature,
-                max_tokens=8192,
+                max_tokens=self.max_tokens,
             )
             self._tools_supported = True
 
@@ -309,7 +316,7 @@ class ReActLoop:
                 model=self.model,
                 messages=self.messages,
                 temperature=self.temperature,
-                max_tokens=8192,
+                max_tokens=self.max_tokens,
             )
             message = response.choices[0].message if response.choices else None
             return getattr(message, "content", None) or ""
@@ -403,9 +410,24 @@ class ReActLoop:
 
     @staticmethod
     def _extract_json(text: str) -> Optional[str]:
-        """提取文本中的 JSON 对象"""
+        """提取文本中的 JSON 对象（含截断修复）"""
         match = re.search(r"\{[\s\S]*\}", text)
-        return match.group(0) if match else None
+        if match:
+            return match.group(0)
+        # 截断场景：JSON 未闭合（LLM 输出被 max_tokens 截断），尝试补齐
+        start = text.find("{")
+        if start == -1:
+            return None
+        fragment = text[start:]
+        depth = fragment.count("{") - fragment.count("}")
+        if depth > 0:
+            candidate = fragment + "}" * depth
+            try:
+                json.loads(candidate)
+                return candidate
+            except json.JSONDecodeError:
+                pass
+        return None
 
     # ---------- 工具执行 ----------
 
@@ -443,17 +465,19 @@ class ReActLoop:
 
     @staticmethod
     def _summarize_tool_result(result: ToolResult) -> str:
-        """生成工具结果摘要"""
+        """生成工具结果摘要（超长时截断并加省略号）"""
         if result.status == "failed":
             return result.error or "执行失败"
         data = result.data or {}
         summary = data.get("summary")
         if summary:
-            return str(summary)[:200]
+            text = str(summary)
+            return text if len(text) <= 200 else text[:197] + "..."
         for key in ("items", "data", "results", "list"):
             if isinstance(data.get(key), list):
                 return f"返回 {len(data[key])} 条数据"
-        return f"返回数据: {str(data)[:100]}"
+        text = str(data)
+        return text if len(text) <= 100 else text[:97] + "..."
 
     @staticmethod
     def _serialize_result(result: Dict[str, Any]) -> str:

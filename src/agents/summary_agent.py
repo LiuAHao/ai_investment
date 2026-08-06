@@ -122,6 +122,7 @@ class SummaryAgent(BaseReActAgent):
             task_id=self.task_id,
             agent_name=self.name,
             max_iterations=self.max_iterations,
+            max_tokens=16384,  # 研报较长，需更大输出空间（含 summary/key_points/多空论据/风险等）
         )
 
         try:
@@ -344,23 +345,124 @@ class SummaryAgent(BaseReActAgent):
         解析策略（按优先级）：
         1. 贪婪匹配到最后一个 `}`：适用于 JSON 内部含 `}`（如 Markdown/嵌套对象）或尾部带说明文字
         2. 非贪婪匹配第一个对象：适用于文本中存在多个 JSON 片段
+        3. 截断修复：贪婪匹配到 `{` 但 JSON 未闭合（LLM 输出被 max_tokens 截断）时，
+           尝试补齐括号后解析，尽可能保留已生成的 summary 内容
         仅接受带 final/answer 类 decision 字段的对象
         """
         if not text:
             return None
+
+        def _is_answer(data: Dict[str, Any]) -> bool:
+            return str(data.get("decision", "")).lower() in (
+                "final", "final_answer", "done", "answer",
+            )
+
+        # 1/2. 标准匹配
         for pattern in (r"\{[\s\S]*\}", r"\{[\s\S]*?\}"):
             match = re.search(pattern, text)
             if not match:
                 continue
             try:
                 data = json.loads(match.group(0))
-                if str(data.get("decision", "")).lower() in (
-                    "final", "final_answer", "done", "answer",
-                ):
+                if _is_answer(data):
                     return data
             except json.JSONDecodeError:
                 continue
+
+        # 3. 截断修复：找到最外层 `{`，从该位置向后补全括号
+        start = text.find("{")
+        if start == -1:
+            return None
+        try:
+            repaired = SummaryAgent._repair_truncated_json(text[start:])
+            if repaired:
+                data = json.loads(repaired)
+                if _is_answer(data):
+                    return data
+        except (json.JSONDecodeError, ValueError):
+            pass
         return None
+
+    @staticmethod
+    def _repair_truncated_json(fragment: str) -> Optional[str]:
+        """
+        尝试修复被截断的 JSON：从片段开头逐字符扫描，
+        维护括号/字符串状态，若截断在字符串内部（引号未闭合），
+        先补齐字符串与右括号；否则按括号深度补齐。
+        仅当片段含完整的 decision 键时返回修复结果。
+        """
+        depth = 0
+        in_string = False
+        escape = False
+        last_valid_end = None
+        truncated_in_string = False
+        for i, ch in enumerate(fragment):
+            if in_string:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == '"':
+                    in_string = False
+                continue
+            if ch == '"':
+                in_string = True
+            elif ch in "{[":
+                depth += 1
+            elif ch in "}]":
+                depth -= 1
+                if depth == 0 and last_valid_end is None:
+                    last_valid_end = i + 1
+            elif ch == "\n":
+                if depth > 0:
+                    break
+        # 截断发生在字符串内部（循环结束仍 in_string）→ 补齐闭合引号
+        if in_string:
+            fragment = fragment.rstrip() + '"'
+            truncated_in_string = True
+            # 重新扫描一次（引号补上后括号状态可能变化）
+            depth = 0
+            in_string = False
+            escape = False
+            last_valid_end = None
+            for ch in fragment:
+                if in_string:
+                    if escape:
+                        escape = False
+                    elif ch == "\\":
+                        escape = True
+                    elif ch == '"':
+                        in_string = False
+                    continue
+                if ch == '"':
+                    in_string = True
+                elif ch in "{[":
+                    depth += 1
+                elif ch in "}]":
+                    depth -= 1
+                    if depth == 0 and last_valid_end is None:
+                        last_valid_end = len(fragment)
+        # 补齐右括号
+        candidate = fragment
+        if depth > 0:
+            candidate = fragment + "}" * depth
+        if last_valid_end and not truncated_in_string:
+            candidate = fragment[:last_valid_end]
+        try:
+            json.loads(candidate)
+            return candidate
+        except json.JSONDecodeError:
+            # 再试:从后向前截取可解析的最长前缀
+            for split in range(len(candidate), 0, -1):
+                piece = candidate[:split]
+                if piece.count("{") - piece.count("}") > 0:
+                    repaired = piece + "}" * (piece.count("{") - piece.count("}"))
+                    try:
+                        json.loads(repaired)
+                        return repaired
+                    except json.JSONDecodeError:
+                        continue
+            return None
 
     @staticmethod
     def _extract_time_frame(text: str) -> str:

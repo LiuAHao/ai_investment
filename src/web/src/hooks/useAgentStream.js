@@ -12,7 +12,7 @@ export function useAgentStream() {
   const [error, setError] = useState('')
 
   const [orchestrator, setOrchestrator] = useState({ thoughts: [], plan: null })
-  const [agents, setAgents] = useState({}) // agentName -> {status, thoughts[], tools[], summary}
+  const [agents, setAgents] = useState({}) // agentName -> {status, round, thoughts[], tools[], summary, round1Summary}
   const [finalAnswer, setFinalAnswer] = useState(null)
   const [agentOrder, setAgentOrder] = useState([])
 
@@ -31,27 +31,6 @@ export function useAgentStream() {
       sourceRef.current.close()
       sourceRef.current = null
     }
-  }, [])
-
-  const start = useCallback(async (query, options = {}) => {
-    reset()
-    try {
-      const { submitQuery } = await import('../services/apiClient')
-      const { task_id, session_id } = await submitQuery(query, options)
-      setTaskId(task_id)
-      setSessionId(session_id)
-      setPhase('orchestrating')
-      listen(task_id)
-    } catch (e) {
-      setError(e.message || '提交失败')
-      setPhase('failed')
-    }
-  }, [reset])
-
-  const listen = useCallback((tid) => {
-    sourceRef.current = subscribeAgentEvents(tid, (event) => {
-      handleEvent(event)
-    })
   }, [])
 
   const handleEvent = useCallback(({ type, data }) => {
@@ -79,7 +58,13 @@ export function useAgentStream() {
       case 'agent_started':
         setAgents((prev) => ({
           ...prev,
-          [data.agent]: { ...(prev[data.agent] || {}), status: 'thinking', task: data.task },
+          [data.agent]: {
+            ...(prev[data.agent] || {}),
+            status: 'thinking',
+            round: data.round || 1,
+            task: data.task,
+            ...(data.round === 2 ? { round1Summary: prev[data.agent]?.summary || '' } : {}),
+          },
         }))
         break
       case 'agent_thinking':
@@ -146,22 +131,47 @@ export function useAgentStream() {
         }))
         break
       case 'agent_completed':
-        setAgents((prev) => ({
-          ...prev,
-          [data.agent]: {
-            ...(prev[data.agent] || {}),
-            status: 'done',
-            summary: data.result_summary,
-          },
-        }))
+        setAgents((prev) => {
+          const round = data.round || 1
+          const prevAgent = prev[data.agent] || {}
+          // 第一轮完成：保存第一轮结论，状态置为"第一轮完成"（等待补充调研）
+          // 第二轮完成：状态置为"已完成"
+          const nextStatus = round === 1 ? 'round1_done' : 'done'
+          return {
+            ...prev,
+            [data.agent]: {
+              ...prevAgent,
+              status: nextStatus,
+              round,
+              summary: data.result_summary,
+              // 第一轮完成时记录本轮摘要；第二轮完成时覆盖最终摘要
+              ...(round === 1 ? { round1Summary: data.result_summary } : {}),
+            },
+          }
+        })
         break
       case 'final_answer':
         setFinalAnswer(data.answer)
         setPhase('done')
+        // 无第二轮时，将第一轮完成的 Agent 置为已完成
+        setAgents((prev) => {
+          const next = { ...prev }
+          Object.keys(next).forEach((name) => {
+            if (next[name].status === 'round1_done') next[name] = { ...next[name], status: 'done' }
+          })
+          return next
+        })
         break
       case 'task_completed':
         if (data.result?.answer) setFinalAnswer(data.result.answer)
         setPhase('done')
+        setAgents((prev) => {
+          const next = { ...prev }
+          Object.keys(next).forEach((name) => {
+            if (next[name].status === 'round1_done') next[name] = { ...next[name], status: 'done' }
+          })
+          return next
+        })
         break
       case 'task_failed':
         setError(data.error || '任务失败')
@@ -171,6 +181,27 @@ export function useAgentStream() {
         break
     }
   }, [])
+
+  const listen = useCallback((tid) => {
+    sourceRef.current = subscribeAgentEvents(tid, (event) => {
+      handleEvent(event)
+    })
+  }, [handleEvent])
+
+  const start = useCallback(async (query, options = {}) => {
+    reset()
+    try {
+      const { submitQuery } = await import('../services/apiClient')
+      const { task_id, session_id } = await submitQuery(query, options)
+      setTaskId(task_id)
+      setSessionId(session_id)
+      setPhase('orchestrating')
+      listen(task_id)
+    } catch (e) {
+      setError(e.message || '提交失败')
+      setPhase('failed')
+    }
+  }, [reset, listen])
 
   useEffect(() => {
     return () => {
