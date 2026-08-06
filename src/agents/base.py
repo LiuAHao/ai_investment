@@ -53,6 +53,8 @@ class BaseReActAgent:
         self._model = model
         self._tool_schemas_cache: Optional[List[Dict[str, Any]]] = None
         self.max_iterations = self._resolve_max_iterations()
+        # P0 信息共享：可选的共享发现池（由 Orchestrator 注入）
+        self.shared_pool: Optional[Any] = None
 
     def _resolve_max_iterations(self) -> int:
         """
@@ -66,8 +68,15 @@ class BaseReActAgent:
 
     # ---------- 公共入口 ----------
 
-    def run(self, task: AgentTask) -> AgentResult:
-        """执行 Agent 任务"""
+    def run(self, task: AgentTask, shared_pool: Optional[Any] = None) -> AgentResult:
+        """
+        执行 Agent 任务（第一轮调研）。
+
+        Args:
+            task: Agent 任务
+            shared_pool: 共享发现池（P0 信息共享，可选）
+        """
+        self.shared_pool = shared_pool
         events.agent_started(self.task_id, self.name, task.goal, task.goal)
 
         loop = ReActLoop(
@@ -79,6 +88,7 @@ class BaseReActAgent:
             task_id=self.task_id,
             agent_name=self.name,
             max_iterations=self.max_iterations,
+            shared_pool=shared_pool,
         )
 
         try:
@@ -100,6 +110,65 @@ class BaseReActAgent:
                 degraded=True,
             )
 
+    def supplement(
+        self,
+        task: AgentTask,
+        shared_pool: Optional[Any] = None,
+        full_findings: Optional[List[Dict[str, Any]]] = None,
+    ) -> AgentResult:
+        """
+        第二轮补充调研（P0 两段式）。
+
+        在第一轮收敛、Orchestrator 汇总完整发现池后调用：
+        注入其他 Agent 的全部发现，让本 Agent 自行判断是否核实/补充，
+        收敛后输出修正领域结论。
+
+        Args:
+            task: 同一 Agent 任务
+            shared_pool: 共享发现池
+            full_findings: 完整发现池（[{agent, text, ts}]）
+        """
+        self.shared_pool = shared_pool
+        try:
+            from agents.shared_pool import SharedFindingsPool
+
+            findings_text = SharedFindingsPool.format_findings(full_findings or [])
+        except Exception:
+            findings_text = ""
+
+        events.agent_started(self.task_id, self.name, f"{task.goal}（补充调研）", task.goal)
+
+        loop = ReActLoop(
+            client=self._get_client(),
+            model=self._get_model(),
+            system_prompt=self._build_supplement_prompt(task, findings_text),
+            tool_schemas=self._get_tool_schemas(),
+            execute_tool=self._execute_tool,
+            task_id=self.task_id,
+            agent_name=self.name,
+            max_iterations=self.max_iterations,
+            shared_pool=shared_pool,
+        )
+
+        try:
+            result = loop.run(self._build_supplement_user_message(task, findings_text))
+            events.agent_completed(
+                self.task_id, self.name,
+                result_summary=result.conclusion,
+                evidence_refs=result.evidence_refs,
+            )
+            return result
+        except Exception as e:
+            logger.exception("[%s] 补充调研失败: %s", self.name, e)
+            events.agent_failed(self.task_id, self.name, str(e))
+            return AgentResult(
+                agent_name=self.name,
+                conclusion=f"补充调研过程中发生错误: {e}",
+                error=str(e),
+                thinking_log=[],
+                degraded=True,
+            )
+
     # ---------- 子类可覆盖 ----------
 
     def _build_prompt(self, task: AgentTask) -> str:
@@ -115,6 +184,30 @@ class BaseReActAgent:
         if task.context:
             parts.append(f"上下文：\n{task.context}")
         return "\n".join(parts)
+
+    def _build_supplement_prompt(self, task: AgentTask, findings_text: str) -> str:
+        """
+        构建第二轮补充调研的 system prompt（子类可覆盖）。
+
+        在基础 prompt 后追加：已看到其他研究员发现，可自行决定是否核实/补充，
+        收敛后输出修正领域结论。
+        """
+        base = self._build_prompt(task)
+        if not findings_text:
+            return base
+        return (
+            f"{base}\n\n"
+            "【第二轮补充调研】你已看到其他研究员在第一轮调研中的全部发现（见下方输入）。\n"
+            "请自行判断：哪些发现影响你的研究结论？是否需要调用工具核实或补充数据？\n"
+            "你可以自由调用工具（无次数限制），核实完毕或信息充分后收敛，输出修正后的研究结论。"
+        )
+
+    def _build_supplement_user_message(self, task: AgentTask, findings_text: str) -> str:
+        """构建第二轮补充调研的用户消息（子类可扩展）"""
+        base = self._build_user_message(task)
+        if not findings_text:
+            return base
+        return f"{base}\n\n{findings_text}"
 
     # ---------- 工具 ----------
 

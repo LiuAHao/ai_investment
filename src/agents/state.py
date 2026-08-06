@@ -156,10 +156,15 @@ class InvestmentAnswer(BaseModel):
     evidence_refs: List[str] = Field(default_factory=list)
     scenarios: List[Dict[str, Any]] = Field(default_factory=list)
     risks: List[str] = Field(default_factory=list)
+    # P2 结构化风险模型：[{type, desc, probability, impact, priced_in}]
+    # type: 行业/财务/政策/市场/技术/流动性；probability: high/medium/low；impact: high/medium/low
+    structured_risks: List[Dict[str, Any]] = Field(default_factory=list)
     action_options: List[str] = Field(default_factory=list)
     confidence: float = 0.0
     data_limitations: List[str] = Field(default_factory=list)
     reasoning: str = ""  # 分析推理过程（多空因素权衡）
+    bull_cases: List[Dict[str, Any]] = Field(default_factory=list)  # 看多论据 [{论据, 强度, 来源}]
+    bear_cases: List[Dict[str, Any]] = Field(default_factory=list)  # 看空论据 [{论据, 强度, 来源}]
     information_gaps: List[str] = Field(default_factory=list)  # 信息缺口/待验证
     time_frame: str = ""  # 结论有效期（短期/中期/长期）
     compliance_disclaimer: str = "以上内容仅为投资研究辅助，不构成确定性收益承诺或直接交易指令。"

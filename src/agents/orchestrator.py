@@ -23,6 +23,25 @@ from agents.state import AgentResult, AgentTask, Asset, InvestmentAnswer
 
 logger = logging.getLogger(__name__)
 
+# 调研 Agent 类映射（模块级，便于测试注入 stub）
+_AGENT_MAP = {
+    "MarketAgent": None,      # 惰性导入，运行时填充
+    "NewsAgent": None,
+    "KnowledgeAgent": None,
+}
+
+
+def _get_agent_map() -> Dict[str, Any]:
+    """惰性加载调研 Agent 类映射"""
+    if _AGENT_MAP["MarketAgent"] is None:
+        from agents.research.market_agent import MarketAgent
+        from agents.research.news_agent import NewsAgent
+        from agents.research.knowledge_agent import KnowledgeAgent
+        _AGENT_MAP["MarketAgent"] = MarketAgent
+        _AGENT_MAP["NewsAgent"] = NewsAgent
+        _AGENT_MAP["KnowledgeAgent"] = KnowledgeAgent
+    return _AGENT_MAP
+
 # 规则兜底关键词 → Agent 派发
 _KEYWORD_PLAN: List[Dict[str, Any]] = [
     {
@@ -202,47 +221,86 @@ class OrchestratorAgent:
         assets: List[Asset],
         context: str,
     ) -> List[AgentResult]:
-        """线程池并行执行调研 Agent"""
-        from agents.research.market_agent import MarketAgent
-        from agents.research.news_agent import NewsAgent
-        from agents.research.knowledge_agent import KnowledgeAgent
+        """
+        P0 两段式并行调研：
+        第一轮：三个 Agent 并行调研（实时广播/消费共享发现）→ 收敛
+        汇聚：收集全部发现组成完整池（去重）
+        第二轮：每个 Agent 带完整池补充调研 → 输出修正领域结论
+        """
+        from agents.shared_pool import SharedFindingsPool
 
-        agent_map = {
-            "MarketAgent": MarketAgent,
-            "NewsAgent": NewsAgent,
-            "KnowledgeAgent": KnowledgeAgent,
-        }
+        agent_map = _get_agent_map()
 
-        results: List[AgentResult] = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
-            future_map = {}
+        shared_pool = SharedFindingsPool()
+        order = {name: idx for idx, name in enumerate(agent_names)}
+
+        def _build_agents() -> Dict[str, Any]:
+            """构建本次计划内的 Agent 实例与任务"""
+            agents: Dict[str, Any] = {}
+            tasks: Dict[str, AgentTask] = {}
             for name in agent_names:
                 cls = agent_map.get(name)
                 if not cls:
                     continue
-                agent = cls(task_id=self.task_id)
-                task = AgentTask(
+                agents[name] = cls(task_id=self.task_id)
+                tasks[name] = AgentTask(
                     agent_name=name,
                     goal=query,
                     assets=assets,
                     context=context,
                 )
-                future = pool.submit(agent.run, task)
-                future_map[future] = name
+            return agents, tasks
 
-            for future in concurrent.futures.as_completed(future_map):
-                name = future_map[future]
-                try:
-                    result = future.result()
-                    results.append(result)
-                except Exception as e:
-                    logger.exception("[%s] 执行异常: %s", name, e)
-                    results.append(AgentResult(agent_name=name, conclusion="", error=str(e), degraded=True))
+        def _run_parallel(executor_fn: Any) -> List[AgentResult]:
+            """
+            通用并行执行：executor_fn(agent) -> AgentResult，agent 为实例。
+            遍历全局 agent 实例字典，保证按计划顺序聚合。
+            """
+            results: List[AgentResult] = []
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+                future_map = {}
+                for name, agent_instance in agents.items():
+                    future = pool.submit(executor_fn, agent_instance)
+                    future_map[future] = name
+                for future in concurrent.futures.as_completed(future_map):
+                    name = future_map[future]
+                    try:
+                        results.append(future.result())
+                    except Exception as e:
+                        logger.exception("[%s] 执行异常: %s", name, e)
+                        results.append(AgentResult(agent_name=name, conclusion="", error=str(e), degraded=True))
+            results.sort(key=lambda r: order.get(r.agent_name, 99))
+            return results
 
-        # 按计划顺序排序
-        order = {name: idx for idx, name in enumerate(agent_names)}
-        results.sort(key=lambda r: order.get(r.agent_name, 99))
-        return results
+        # ---------- 第一轮：并行调研（实时广播/消费） ----------
+        agents, tasks = _build_agents()
+        if not agents:
+            return []
+
+        def _first_round(agent: Any) -> AgentResult:
+            return agent.run(tasks[agent.name], shared_pool=shared_pool)
+
+        first_results = _run_parallel(_first_round)
+
+        # ---------- 汇聚：完整发现池（已去重，由 SharedFindingsPool 保证） ----------
+        full_findings = shared_pool.get_all()
+        if full_findings:
+            events.orchestrator_thinking(
+                self.task_id,
+                f"第一轮调研完成，汇总共享发现 {len(full_findings)} 条，进入补充调研",
+            )
+        else:
+            events.orchestrator_thinking(self.task_id, "第一轮调研完成，无共享发现，跳过补充调研")
+
+        # ---------- 第二轮：补充调研（注入完整池） ----------
+        if not full_findings:
+            return first_results
+
+        def _second_round(agent: Any) -> AgentResult:
+            return agent.supplement(tasks[agent.name], shared_pool=shared_pool, full_findings=full_findings)
+
+        second_results = _run_parallel(_second_round)
+        return second_results
 
     # ---------- L3 知识沉淀 ----------
 

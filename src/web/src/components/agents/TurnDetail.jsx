@@ -36,7 +36,12 @@ const ToolCallItem = ({ tc }) => (
 
 const AgentSection = ({ agent }) => {
   const [avatar, avatarClass] = AVATARS[agent.agent_name] || ['A', 'av-mkt']
-  const thoughts = agent.thinking_log || []
+  const conclusion = (agent.conclusion || '').trim()
+  // 过滤与 Agent 结论重复的收敛思考记录（如 "收敛: <完整结论>"），避免研究结论重复展示
+  const thoughts = (agent.thinking_log || []).filter((t) => {
+    const core = t.replace(/^收敛\s*[:：]?\s*/, '').trim()
+    return core !== conclusion
+  })
   const tools = agent.tool_calls || []
   const hasContent = thoughts.length > 0 || tools.length > 0
 

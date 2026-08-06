@@ -29,26 +29,49 @@ SYSTEM_PROMPT = """你是投资总结分析师，负责综合多个调研 Agent 
 【分析框架】综合时按以下层次推进（思考后再输出）：
 1. 跨维度交叉验证：行情结论 vs 新闻舆情 vs 知识框架 是否一致？矛盾点在哪？
 2. 提炼核心逻辑链：为什么当前是这个状态？驱动因素是什么？（如"政策 → 资金 → 行情"的传导）
-3. 多空因素权衡：列出看多/看空的主要论据，判断哪方更占优
+3. 多空因素权衡：先客观列出看多与看空的主要论据，再判断哪方更占优
 4. 识别关键风险与不确定性：哪些数据缺失、哪些假设可能被证伪
 5. 给出结论的有效时间框架：该判断适用于短期/中期/长期
 
-【工具使用】仅在以下情况调用（一次即可）：
+【重要：论据前置】输出结论前必须先在 JSON 中列出完整的多空论据（bull_cases / bear_cases），
+再基于这些论据给出决策。不得跳过论据直接给结论。论据要求：
+- 每条论据必须基于调研数据或知识库，注明来源（如"宁德时代Q2财报/新闻"）
+- 强度标注：high / medium / low（依据明确性、数据时效性、来源可靠性综合判断）
+- 论据要客观，看多列理由、看空也要列理由，不能只写单边
+
+【工具使用】你可用全部工具，仅在以下情况调用（尽量一次到位）：
 - 发现关键数据矛盾，需要核实（行情/新闻）
 - 核心结论缺少证据支撑，需要补一个关键数据点
 - 涉及指标口径/规则，需要查知识库确认
 其余情况直接基于调研结果分析，不要为调用而调用。
+
+【双源核验】对关键数字（涨跌幅、PE/PB、成交额等）尽量做双源核验：
+- 不同工具/接口返回的数据不一致时，标注"数据冲突待核验"，不得直接采用单一来源数字
+- 引用估值指标时注明口径（如"PE(TTM)" vs "PE(动态)"），口径不同不可直接比较
 
 【输出格式】当信息充分时，输出 JSON 格式的最终结论：
 {
   "decision": "final",
   "summary": "总体判断（包含核心逻辑链，2-3 句）",
   "key_points": ["关键判断1（带依据）", "关键判断2（带依据）"],
+  "bull_cases": [{"point": "看多论据1", "strength": "high/medium/low", "source": "来源"}],
+  "bear_cases": [{"point": "看空论据1", "strength": "high/medium/low", "source": "来源"}],
   "risks": ["风险1（含性质，如市场波动/信息时效）", "风险2"],
-  "reasoning": "分析推理过程（多空因素权衡的简述）",
+  "structured_risks": [
+    {"type": "市场/行业/财务/政策/流动性/技术", "desc": "风险描述",
+     "probability": "high/medium/low", "impact": "high/medium/low", "priced_in": true/false}
+  ],
+  "reasoning": "分析推理过程（基于多空论据的权衡简述，先论证后结论）",
   "information_gaps": ["信息缺口/待验证事项"],
   "time_frame": "结论有效期（如：短期1-4周 / 中期1-6月）"
 }
+注：structured_risks 与 risks 二选一即可（结构化优先）；无法结构化时 risks 字符串列表也可。
+
+【置信度】综合多空论据强度差、信息缺口数量、数据可靠性，自评 confidence（0~1）：
+- 多空论据均衡、缺口多、数据旧 → 置信度低（<0.6）
+- 单边优势明显、缺口少、数据新且双源验证 → 置信度高（≥0.8）
+- confidence < 0.6 时，summary 必须显著标注"不确定性较高"
+- information_gaps 非空时，在 summary 中提示"部分数据待验证"
 
 【收敛原则】综合全部调研结论后立即输出；除非发现关键矛盾或重大信息缺失，否则不要调用工具。
 
@@ -64,11 +87,7 @@ class SummaryAgent(BaseReActAgent):
 
     name = "SummaryAgent"
     description = "综合分析并输出最终投资结论：汇总调研结果，识别关键判断与风险"
-    tool_names = [
-        "asset_news_search",
-        "cn_stock_spot_search",
-        "investment_framework_search",
-    ]
+    tool_names = []  # 空 = 使用全部工具（可在综合阶段自行核实关键数据）
     system_prompt = SYSTEM_PROMPT
     max_iterations = 8
 
@@ -159,6 +178,10 @@ class SummaryAgent(BaseReActAgent):
             reasoning = str(data.get("reasoning") or "")
             information_gaps = [str(x) for x in data.get("information_gaps", []) if x]
             time_frame = str(data.get("time_frame") or "")
+            model_confidence = data.get("confidence")
+            bull_cases = self._parse_cases(data.get("bull_cases"))
+            bear_cases = self._parse_cases(data.get("bear_cases"))
+            structured_risks = self._parse_structured_risks(data.get("structured_risks"), risks)
         else:
             summary = conclusion
             key_points = self._split_points(conclusion)
@@ -166,12 +189,26 @@ class SummaryAgent(BaseReActAgent):
             reasoning = ""
             information_gaps = []
             time_frame = ""
+            model_confidence = None
+            bull_cases = []
+            bear_cases = []
+            structured_risks = []
 
         # 深度字段兜底：模型可能只输出 summary 文本，尝试从结论提取
         if not key_points and summary:
             key_points = self._split_points(summary)
         if not time_frame:
             time_frame = self._extract_time_frame(conclusion)
+
+        # 置信度评分：综合模型自评 + degraded + 信息缺口数 + 工具失败率
+        confidence = self._compute_confidence(
+            model_confidence=model_confidence,
+            degraded=result.degraded,
+            information_gaps=information_gaps,
+            tool_calls=result.tool_calls,
+            bull_cases=bull_cases,
+            bear_cases=bear_cases,
+        )
 
         return InvestmentAnswer(
             session_id=session_id,
@@ -180,12 +217,124 @@ class SummaryAgent(BaseReActAgent):
             summary=summary,
             key_points=key_points,
             risks=risks,
+            structured_risks=structured_risks,
             evidence_refs=result.evidence_refs,
-            confidence=1.0 if not result.degraded else 0.5,
+            confidence=confidence,
             reasoning=reasoning,
+            bull_cases=bull_cases,
+            bear_cases=bear_cases,
             information_gaps=information_gaps,
             time_frame=time_frame,
         )
+
+    @staticmethod
+    def _parse_structured_risks(raw: Any, fallback_risks: List[str]) -> List[Dict[str, Any]]:
+        """
+        解析结构化风险列表。
+
+        Args:
+            raw: 模型输出的 structured_risks（dict 列表）
+            fallback_risks: 字符串风险列表（当 raw 无效时作为兜底，转为 type=其他）
+
+        Returns:
+            结构化风险列表 [{type, desc, probability, impact, priced_in}]
+        """
+        result: List[Dict[str, Any]] = []
+        if isinstance(raw, list):
+            for item in raw:
+                if not isinstance(item, dict):
+                    continue
+                desc = str(item.get("desc") or item.get("description") or item.get("风险") or "").strip()
+                if not desc:
+                    continue
+                rtype = str(item.get("type") or item.get("类型") or "其他").strip()
+                prob = str(item.get("probability") or item.get("概率") or "medium").strip().lower()
+                impact = str(item.get("impact") or item.get("影响") or "medium").strip().lower()
+                priced_in = item.get("priced_in")
+                if prob not in ("high", "medium", "low"):
+                    prob = "medium"
+                if impact not in ("high", "medium", "low"):
+                    impact = "medium"
+                result.append({
+                    "type": rtype,
+                    "desc": desc,
+                    "probability": prob,
+                    "impact": impact,
+                    "priced_in": bool(priced_in) if priced_in is not None else None,
+                })
+        # 兜底：无结构化风险时，把字符串风险转成 type=其他
+        if not result:
+            for risk in fallback_risks or []:
+                result.append({
+                    "type": "其他",
+                    "desc": str(risk),
+                    "probability": "medium",
+                    "impact": "medium",
+                    "priced_in": None,
+                })
+        return result
+
+    @staticmethod
+    def _parse_cases(raw: Any) -> List[Dict[str, Any]]:
+        """解析 bull_cases / bear_cases（兼容 dict 列表 / 字符串列表）"""
+        cases: List[Dict[str, Any]] = []
+        if not raw:
+            return cases
+        for item in raw:
+            if isinstance(item, dict):
+                point = str(item.get("point") or item.get("text") or item.get("论据") or "").strip()
+                if not point:
+                    continue
+                strength = str(item.get("strength") or item.get("强度") or "medium").strip().lower()
+                if strength not in ("high", "medium", "low"):
+                    strength = "medium"
+                source = str(item.get("source") or item.get("来源") or "").strip()
+                cases.append({"point": point, "strength": strength, "source": source})
+            elif isinstance(item, str) and item.strip():
+                cases.append({"point": item.strip(), "strength": "medium", "source": ""})
+        return cases
+
+    @staticmethod
+    def _compute_confidence(
+        model_confidence: Optional[float],
+        degraded: bool,
+        information_gaps: List[str],
+        tool_calls: List[Any],
+        bull_cases: List[Dict[str, Any]],
+        bear_cases: List[Dict[str, Any]],
+    ) -> float:
+        """
+        综合置信度评分（0~1）：
+        - 基准:模型自评（0~1），无自评用 0.85
+        - degraded → 直接压到 ≤0.4
+        - 信息缺口 ≥3 扣 0.1；≥5 再扣 0.1
+        - 工具失败率 >50% 扣 0.1
+        - 多空论据过于失衡（单边论据数为 0）扣 0.05
+        """
+        base = 0.85
+        if isinstance(model_confidence, (int, float)):
+            base = float(model_confidence)
+        base = max(0.0, min(1.0, base))
+
+        if degraded:
+            return min(base, 0.4)
+
+        if len(information_gaps or []) >= 5:
+            base -= 0.2
+        elif len(information_gaps or []) >= 3:
+            base -= 0.1
+
+        if tool_calls:
+            total = len(tool_calls)
+            failed = sum(1 for t in tool_calls if getattr(t, "status", "") == "failed")
+            if total > 0 and failed / total > 0.5:
+                base -= 0.1
+
+        # 论据失衡惩罚：要求双方至少各 1 条论据
+        if not bull_cases or not bear_cases:
+            base -= 0.05
+
+        return max(0.0, min(1.0, round(base, 2)))
 
     @staticmethod
     def _extract_answer_json(text: str) -> Optional[Dict[str, Any]]:

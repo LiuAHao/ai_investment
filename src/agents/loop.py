@@ -53,6 +53,7 @@ class ReActLoop:
         max_iterations: int = 8,
         emit_thinking: bool = True,
         temperature: float = 0.3,
+        shared_pool: Optional["SharedFindingsPool"] = None,
     ):
         self.client = client
         self.model = model
@@ -64,6 +65,8 @@ class ReActLoop:
         self.max_iterations = max_iterations
         self.emit_thinking = emit_thinking
         self.temperature = temperature
+        self.shared_pool = shared_pool  # 共享发现池（可为 None，单 Agent 场景）
+        self._pool_cursor = 0  # 已注入到本循环的池游标
         self._tools_supported: Optional[bool] = None  # 缓存 function calling 支持性
 
         self.messages: List[Dict[str, Any]] = [{"role": "system", "content": system_prompt}]
@@ -97,15 +100,19 @@ class ReActLoop:
         no_progress_streak = 0
 
         for step in range(self.max_iterations):
+            # 注入共享发现池中的新发现（供本轮决策参考）
+            self._inject_shared_findings()
+
             # 带工具调用尝试（仅在首次或确认支持后）
             if self._tools_supported is not False:
                 text_answer = self._try_function_calling()
                 if text_answer is not None and text_answer != "":
                     # 模型本轮未调用工具，直接给出了文本回答
                     content = text_answer.strip()
+                    self._publish_findings(content)
                     decision = self._parse_decision(content)
                     if decision["type"] == "final":
-                        self._log_thinking(f"收敛: {decision.get('summary', '')}")
+                        self._log_thinking("收敛: 已完成调研，整理输出研究结论")
                         return self._build_result(decision.get("summary", content))
                     if decision["type"] == "tool":
                         self._handle_tool_call(decision.get("tool", ""), decision.get("params", {}))
@@ -127,10 +134,11 @@ class ReActLoop:
             # 文本协议路径（function calling 不可用）
             response = self._call_plain()
             content = response or ""
+            self._publish_findings(content)
             decision = self._parse_decision(content)
 
             if decision["type"] == "final":
-                self._log_thinking(f"收敛: {decision.get('summary', '')}")
+                self._log_thinking("收敛: 已完成调研，整理输出研究结论")
                 return self._build_result(decision.get("summary", content))
 
             if decision["type"] == "tool":
@@ -308,6 +316,46 @@ class ReActLoop:
         except Exception as e:
             logger.exception("[%s] LLM 调用失败: %s", self.agent_name, e)
             return f'{{"decision": "final", "summary": "模型调用失败: {e}"}}'
+
+    # ---------- 共享发现池（P0 信息共享） ----------
+
+    def _inject_shared_findings(self) -> None:
+        """
+        每轮决策前，将共享池中自上次读取以来的新发现注入对话上下文。
+        通过 system message 尾部追加（不影响既有消息结构）。
+        """
+        if self.shared_pool is None:
+            return
+        try:
+            new_findings = self.shared_pool.get_since(self._pool_cursor)
+            if not new_findings:
+                return
+            self._pool_cursor += len(new_findings)
+            from agents.shared_pool import SharedFindingsPool
+
+            block = SharedFindingsPool.format_findings(new_findings)
+            if block:
+                self.messages.append({"role": "system", "content": block})
+        except Exception as exc:
+            logger.warning("[%s] 注入共享发现失败: %s", self.agent_name, exc)
+
+    def _publish_findings(self, content: str) -> None:
+        """
+        从模型输出中解析 [FINDINGS] 广播并写入共享池。
+        约定：模型在文本回答中以 "[FINDINGS] 文本" 或 "FINDINGS: 文本" 前缀输出发现。
+        """
+        if self.shared_pool is None:
+            return
+        if not content:
+            return
+        try:
+            pattern = re.compile(r"(?:\[FINDINGS\]|FINDINGS\s*:)\s*(.+)", re.IGNORECASE)
+            for match in pattern.finditer(content):
+                finding = match.group(1).strip()
+                if finding:
+                    self.shared_pool.publish(self.agent_name, finding)
+        except Exception as exc:
+            logger.warning("[%s] 广播发现失败: %s", self.agent_name, exc)
 
     def _parse_decision(self, content: str) -> Dict[str, Any]:
         """解析模型输出的决策（JSON 兜底）"""
