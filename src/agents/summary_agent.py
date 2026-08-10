@@ -39,6 +39,9 @@ SYSTEM_PROMPT = """你是投资总结分析师，负责综合多个调研 Agent 
 - 强度标注：high / medium / low（依据明确性、数据时效性、来源可靠性综合判断）
 - 论据要客观，看多列理由、看空也要列理由，不能只写单边
 
+【综合分析要求】必须综合所有调研 Agent 的结论（行情/技术面、新闻/舆情、知识/基本面），
+报告要覆盖各维度发现，不遗漏任何一路的结论；存在矛盾时在 reasoning 中明确说明差异与取舍。
+
 【工具使用】你可用全部工具，仅在以下情况调用（尽量一次到位）：
 - 发现关键数据矛盾，需要核实（行情/新闻）
 - 核心结论缺少证据支撑，需要补一个关键数据点
@@ -49,23 +52,23 @@ SYSTEM_PROMPT = """你是投资总结分析师，负责综合多个调研 Agent 
 - 不同工具/接口返回的数据不一致时，标注"数据冲突待核验"，不得直接采用单一来源数字
 - 引用估值指标时注明口径（如"PE(TTM)" vs "PE(动态)"），口径不同不可直接比较
 
-【输出格式】当信息充分时，输出 JSON 格式的最终结论：
+【输出格式·必须】必须输出完整 JSON 格式的最终报告，以下章节均为必填，不得省略任一章节：
 {
   "decision": "final",
-  "summary": "总体判断（包含核心逻辑链，2-3 句）",
-  "key_points": ["关键判断1（带依据）", "关键判断2（带依据）"],
-  "bull_cases": [{"point": "看多论据1", "strength": "high/medium/low", "source": "来源"}],
-  "bear_cases": [{"point": "看空论据1", "strength": "high/medium/low", "source": "来源"}],
+  "summary": "总体判断：3-5 句完整核心逻辑链（驱动因素 → 传导 → 结论）",
+  "key_points": ["关键判断（4-6 条，须覆盖行情/新闻/知识至少两个维度，每条带数据依据）"],
+  "bull_cases": [{"point": "看多论据（至少 2 条）", "strength": "high/medium/low", "source": "来源"}],
+  "bear_cases": [{"point": "看空论据（至少 2 条）", "strength": "high/medium/low", "source": "来源"}],
   "risks": ["风险1（含性质，如市场波动/信息时效）", "风险2"],
   "structured_risks": [
     {"type": "市场/行业/财务/政策/流动性/技术", "desc": "风险描述",
      "probability": "high/medium/low", "impact": "high/medium/low", "priced_in": true/false}
   ],
-  "reasoning": "分析推理过程（基于多空论据的权衡简述，先论证后结论）",
-  "information_gaps": ["信息缺口/待验证事项"],
+  "reasoning": "完整分析推理过程（跨维度交叉验证 → 矛盾识别 → 多空权衡，先论证后结论）",
+  "information_gaps": ["信息缺口/待验证事项（无则填 []）"],
   "time_frame": "结论有效期（如：短期1-4周 / 中期1-6月）"
 }
-注：structured_risks 与 risks 二选一即可（结构化优先）；无法结构化时 risks 字符串列表也可。
+注：structured_risks 与 risks 二选一即可（结构化优先，至少 3 条）；无法结构化时 risks 字符串列表至少 3 条。
 
 【置信度】综合多空论据强度差、信息缺口数量、数据可靠性，自评 confidence（0~1）：
 - 多空论据均衡、缺口多、数据旧 → 置信度低（<0.6）
@@ -123,6 +126,7 @@ class SummaryAgent(BaseReActAgent):
             agent_name=self.name,
             max_iterations=self.max_iterations,
             max_tokens=16384,  # 研报较长，需更大输出空间（含 summary/key_points/多空论据/风险等）
+            keep_full_json=True,  # 保留模型输出的完整 JSON 结构，供 _parse_answer 解析全部章节
         )
 
         try:

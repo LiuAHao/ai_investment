@@ -75,8 +75,14 @@ class OrchestratorAgent:
         self.task_id = task_id
         self._client = None
         self._model = model or get_env("AGENT_LLM_MODEL", "deepseek-chat")
+        self._thoughts: List[str] = []  # 编排思考轨迹（随 result 返回，供历史持久化）
 
     # ---------- 主入口 ----------
+
+    def _think(self, text: str) -> None:
+        """记录编排思考（收集进 self._thoughts 供历史持久化，同时发射 SSE 事件）"""
+        self._thoughts.append(text)
+        events.orchestrator_thinking(self.task_id, text)
 
     def run_query(
         self,
@@ -87,21 +93,19 @@ class OrchestratorAgent:
     ) -> Dict[str, Any]:
         """执行完整研究流程"""
         # 1. 编排思考：理解问题
-        events.orchestrator_thinking(self.task_id, f"识别问题意图：{query[:60]}")
+        self._think(f"识别问题意图：{query[:60]}")
         assets = self._resolve_assets(query, context)
 
         # 2. 决策派发计划
         plan = self._decide_plan(query, assets)
-        events.orchestrator_thinking(
-            self.task_id,
-            f"确定研究计划：{' + '.join(plan['agents'])}（{plan['reason']}）",
-        )
+        self._think(f"确定研究计划：{' + '.join(plan['agents'])}（{plan['reason']}）")
         events.orchestrator_decided(self.task_id, plan["agents"], plan["reason"])
 
         # 3. 并行执行调研 Agent
         agent_results = self._run_research_agents(plan["agents"], query, assets, context)
 
         # 4. 汇总交给 SummaryAgent
+        self._think("调研完成，进入 SummaryAgent 综合总结阶段")
         from agents.summary_agent import SummaryAgent
 
         summary_agent = SummaryAgent(task_id=self.task_id)
@@ -122,6 +126,11 @@ class OrchestratorAgent:
             "plan": plan,
             "agent_results": [r.model_dump() for r in agent_results],
             "answer": answer.model_dump(),
+            "orchestrator": {
+                "thoughts": self._thoughts,
+                "plan": plan.get("agents", []),
+                "reason": plan.get("reason", ""),
+            },
         }
 
     # ---------- 资产识别 ----------
@@ -137,7 +146,7 @@ class OrchestratorAgent:
             if selected:
                 assets = [Asset(**a) for a in selected]
                 names = ", ".join(a.name or a.symbol or "" for a in assets)
-                events.orchestrator_thinking(self.task_id, f"资产识别：{names}")
+                self._think(f"资产识别：{names}")
                 return assets
 
             # 追问继承
@@ -145,11 +154,11 @@ class OrchestratorAgent:
                 # 尝试从上下文提取资产（简化：交给规则，无资产时返回空）
                 pass
 
-            events.orchestrator_thinking(self.task_id, "未识别到具体资产，按宏观/市场问题处理")
+            self._think("未识别到具体资产，按宏观/市场问题处理")
             return []
         except Exception as e:
             logger.warning("资产解析失败: %s", e)
-            events.orchestrator_thinking(self.task_id, f"资产解析异常：{e}")
+            self._think(f"资产解析异常：{e}")
             return []
 
     # ---------- 派发计划（LLM + 规则兜底） ----------
@@ -285,12 +294,9 @@ class OrchestratorAgent:
         # ---------- 汇聚：完整发现池（已去重，由 SharedFindingsPool 保证） ----------
         full_findings = shared_pool.get_all()
         if full_findings:
-            events.orchestrator_thinking(
-                self.task_id,
-                f"第一轮调研完成，汇总共享发现 {len(full_findings)} 条，进入补充调研",
-            )
+            self._think(f"第一轮调研完成，汇总共享发现 {len(full_findings)} 条，进入补充调研")
         else:
-            events.orchestrator_thinking(self.task_id, "第一轮调研完成，无共享发现，跳过补充调研")
+            self._think("第一轮调研完成，无共享发现，跳过补充调研")
 
         def _second_round(agent: Any) -> AgentResult:
             return agent.supplement(tasks[agent.name], shared_pool=shared_pool, full_findings=full_findings)
@@ -328,10 +334,7 @@ class OrchestratorAgent:
             )
             status = result.get("status", "error")
             if status == "written":
-                events.orchestrator_thinking(
-                    self.task_id,
-                    f"L3 知识沉淀完成：{result.get('title', '')}",
-                )
+                self._think(f"L3 知识沉淀完成：{result.get('title', '')}")
             else:
                 logger.info("L3 沉淀未写入（%s）：%s", status, result.get("reason", ""))
         except Exception as exc:

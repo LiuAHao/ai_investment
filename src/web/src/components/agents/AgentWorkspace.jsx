@@ -34,13 +34,17 @@ const AgentWorkspace = ({ phase, orchestrator, agents, agentOrder, finalAnswer, 
         </>
       )}
 
-      {/* PHASE 03 汇总结论 */}
-      {(finalAnswer || phase === 'summarizing') && (
+      {/* PHASE 03 汇总结论：分析中展示 SummaryAgent 进度卡（思考流+工具流），完成后展示完整研报 */}
+      {(finalAnswer || phase === 'summarizing' || agents['SummaryAgent']) && (
         <>
           <div className="phase-tag">
             <span className="phase-label">PHASE 03 · CONCLUSION</span>
           </div>
-          <SummaryCard answer={finalAnswer} />
+          {finalAnswer ? (
+            <SummaryCard answer={finalAnswer} />
+          ) : (
+            <AgentCard name="SummaryAgent" state={agents['SummaryAgent']} />
+          )}
         </>
       )}
 

@@ -55,6 +55,7 @@ class ReActLoop:
         temperature: float = 0.3,
         shared_pool: Optional["SharedFindingsPool"] = None,
         max_tokens: int = 8192,
+        keep_full_json: bool = False,
     ):
         self.client = client
         self.model = model
@@ -67,6 +68,7 @@ class ReActLoop:
         self.emit_thinking = emit_thinking
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.keep_full_json = keep_full_json  # final 时保留完整 JSON 结构（供下游解析全部章节）
         self.shared_pool = shared_pool  # 共享发现池（可为 None，单 Agent 场景）
         self._pool_cursor = 0  # 已注入到本循环的池游标
         self._tools_supported: Optional[bool] = None  # 缓存 function calling 支持性
@@ -115,7 +117,7 @@ class ReActLoop:
                     decision = self._parse_decision(content)
                     if decision["type"] == "final":
                         self._log_thinking("收敛: 已完成调研，整理输出研究结论")
-                        return self._build_result(decision.get("summary", content))
+                        return self._build_result(self._final_conclusion(decision, content))
                     if decision["type"] == "tool":
                         self._handle_tool_call(decision.get("tool", ""), decision.get("params", {}))
                         no_progress_streak = self._check_progress(no_progress_streak)
@@ -141,7 +143,7 @@ class ReActLoop:
 
             if decision["type"] == "final":
                 self._log_thinking("收敛: 已完成调研，整理输出研究结论")
-                return self._build_result(decision.get("summary", content))
+                return self._build_result(self._final_conclusion(decision, content))
 
             if decision["type"] == "tool":
                 self._handle_tool_call(decision.get("tool", ""), decision.get("params", {}))
@@ -163,6 +165,19 @@ class ReActLoop:
             tool_calls=self.tool_results,
             thinking_log=self.thinking_log,
         )
+
+    def _final_conclusion(self, decision: Dict[str, Any], fallback: str) -> str:
+        """
+        final 决策的结论文本：
+        keep_full_json=True 时保留模型输出的完整 JSON 结构（含 key_points/多空论据/风险等），
+        供下游 _parse_answer 解析出全部章节；否则只取 summary 文本。
+        """
+        if self.keep_full_json and decision.get("raw") is not None:
+            try:
+                return json.dumps(decision["raw"], ensure_ascii=False)
+            except Exception:
+                pass
+        return decision.get("summary") or fallback
 
     def _check_progress(self, streak: int) -> int:
         """
@@ -213,7 +228,7 @@ class ReActLoop:
         if content.strip():
             decision = self._parse_decision(content)
             if decision["type"] == "final":
-                return self._build_result(decision.get("summary", content))
+                return self._build_result(self._final_conclusion(decision, content))
             if decision["type"] == "tool":
                 self._handle_tool_call(decision.get("tool", ""), decision.get("params", {}))
             return self._build_result(content)
@@ -378,6 +393,7 @@ class ReActLoop:
                     return {
                         "type": "final",
                         "summary": str(data.get("summary") or data.get("answer") or content),
+                        "raw": data,
                     }
                 if decision_type in ("tool", "call_tool", "action"):
                     return {

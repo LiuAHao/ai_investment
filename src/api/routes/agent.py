@@ -68,13 +68,12 @@ def _run_agent_task(task_id: str, session_id: str, query: str, risk_preference: 
 
 
 def _save_session_turn(session_id: str, query: str, result: Dict[str, Any]) -> None:
-    """将研究结果写入内存会话"""
+    """将研究结果写入会话（JSON 文件持久化）"""
     try:
         from agents.memory import get_session_memory
         from agents.state import InvestmentAnswer
 
         memory = get_session_memory()
-        session = memory.get_or_create(session_id)
 
         answer_data = result.get("answer", {})
         answer = InvestmentAnswer(**answer_data)
@@ -101,7 +100,17 @@ def _save_session_turn(session_id: str, query: str, result: Dict[str, Any]) -> N
                 "error": r.get("error"),
                 "degraded": r.get("degraded", False),
             })
-        session.add_turn(query, answer, agent_results)
+
+        # 编排信息（供历史页还原主页展示：编排卡 + 按 plan 排工位）
+        orch = result.get("orchestrator", {})
+        orchestrator = {
+            "thoughts": orch.get("thoughts", []),
+            "plan": orch.get("plan", []),
+            "reason": orch.get("reason", ""),
+        }
+        plan = result.get("plan", {}).get("agents", [])
+
+        memory.add_turn(session_id, query, answer, agent_results, plan=plan, orchestrator=orchestrator)
     except Exception as e:
         logger.warning("保存会话记忆失败: %s", e)
 

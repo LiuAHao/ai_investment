@@ -56,6 +56,10 @@ export function useAgentStream() {
         break
       }
       case 'agent_started':
+        // SummaryAgent 开始分析 → 进入 PHASE 03（展示总结进度卡，不必等完成）
+        if (data.agent === 'SummaryAgent') {
+          setPhase('summarizing')
+        }
         setAgents((prev) => ({
           ...prev,
           [data.agent]: {
@@ -134,9 +138,10 @@ export function useAgentStream() {
         setAgents((prev) => {
           const round = data.round || 1
           const prevAgent = prev[data.agent] || {}
-          // 第一轮完成：保存第一轮结论，状态置为"第一轮完成"（等待补充调研）
-          // 第二轮完成：状态置为"已完成"
-          const nextStatus = round === 1 ? 'round1_done' : 'done'
+          // SummaryAgent 单轮完成直接置为已完成（随后 final_answer 渲染完整研报）
+          const isSummary = data.agent === 'SummaryAgent'
+          // 调研 Agent：第一轮完成保存结论等待补充；第二轮完成置为已完成
+          const nextStatus = isSummary ? 'done' : (round === 1 ? 'round1_done' : 'done')
           return {
             ...prev,
             [data.agent]: {

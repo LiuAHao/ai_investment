@@ -72,7 +72,7 @@ const HistoryView = ({ onBack }) => {
       {!loading && sessions.length === 0 && (
         <div className="empty-state">
           <div className="empty-state-title">暂无历史会话</div>
-          （内存态会话，重启服务后清空）
+          （完成研究后自动保存，重启服务不丢失）
         </div>
       )}
       <div className="history-list">

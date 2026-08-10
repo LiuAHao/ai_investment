@@ -5,6 +5,7 @@ const AVATARS = {
   MarketAgent: ['市', 'av-mkt'],
   NewsAgent: ['闻', 'av-news'],
   KnowledgeAgent: ['知', 'av-kno'],
+  SummaryAgent: ['研', 'av-sum'],
 }
 
 const STATUS_LABEL = {
@@ -29,6 +30,7 @@ const AGENT_CODENAME = {
   MarketAgent: '市场行情',
   NewsAgent: '新闻舆情',
   KnowledgeAgent: '知识库',
+  SummaryAgent: '总结分析',
 }
 
 const AgentCard = ({ name, state, index = 0 }) => {
@@ -60,7 +62,10 @@ const AgentCard = ({ name, state, index = 0 }) => {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="card-name">{name}</div>
           <div className="agent-index">
-            {AGENT_CODENAME[name] || '调研'} · 工位 {String(index + 1).padStart(2, '0')}
+            {AGENT_CODENAME[name] || '调研'}
+            {name === 'SummaryAgent'
+              ? ' · 综合三路调研结论'
+              : ` · 工位 ${String(index + 1).padStart(2, '0')}`}
             {status === 'round1_done' && <span style={{ color: 'var(--gold)', fontSize: 11 }}> · 第二轮待启动</span>}
           </div>
         </div>
@@ -151,7 +156,7 @@ const AgentCard = ({ name, state, index = 0 }) => {
               <span className="item-icon">📝</span>
               <div className="item-body">
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--gold)', letterSpacing: '.12em', marginBottom: 4 }}>
-                  {status === 'round1_done' ? '第一轮结论' : '研究结论'}
+                  {status === 'round1_done' ? '第一轮结论' : name === 'SummaryAgent' ? '综合结论' : '研究结论'}
                 </div>
                 <Markdown text={summary} />
                 {status === 'round1_done' && (
