@@ -45,17 +45,40 @@ def load_env_file() -> None:
         pass
 
 
+def get_llm_model() -> str:
+    """统一模型名：LLM_MODEL，兼容旧变量。"""
+    return (
+        get_env("LLM_MODEL")
+        or get_env("AGENT_LLM_MODEL")
+        or get_env("DEEPSEEK_MODEL")
+        or "deepseek-chat"
+    )
+
+
 def build_client(timeout: float = 120.0, max_retries: int = 0) -> OpenAI:
     """
     构建 OpenAI 兼容客户端。
+
+    统一读取 LLM_API_KEY / LLM_BASE_URL；
+    保留 DEEPSEEK_* / OPENAI_* 作为旧配置回退，后续可删除。
 
     Args:
         timeout: 单次请求读超时（秒），默认 120（原 SDK 默认 600s 过长）
         max_retries: SDK 层重试次数，默认 0（由调用方显式控制，避免叠加放大）
     """
     load_env_file()
-    api_key = get_env("DEEPSEEK_API_KEY") or get_env("OPENAI_API_KEY")
-    base_url = get_env("DEEPSEEK_BASE_URL") or get_env("OPENAI_BASE_URL")
+    api_key = (
+        get_env("LLM_API_KEY")
+        or get_env("DEEPSEEK_API_KEY")
+        or get_env("OPENAI_API_KEY")
+    )
+    if not api_key:
+        raise RuntimeError("未配置 LLM_API_KEY，请在 .env 中设置通用的 LLM API Key")
+    base_url = (
+        get_env("LLM_BASE_URL")
+        or get_env("DEEPSEEK_BASE_URL")
+        or get_env("OPENAI_BASE_URL")
+    )
     kwargs = {"api_key": api_key, "timeout": timeout, "max_retries": max_retries}
     if base_url:
         kwargs["base_url"] = base_url

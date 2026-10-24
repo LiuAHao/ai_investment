@@ -263,7 +263,7 @@ def _default_pipeline(asset: str, as_of: str, cache: Optional[ResponseCache]) ->
 
     from agents.pipeline import Pipeline
 
-    cache_key = f"pipeline|{asset}|{as_of}|{os.getenv('AGENT_LLM_MODEL', '')}"
+    cache_key = f"pipeline|{asset}|{as_of}|{os.getenv('LLM_MODEL', '') or os.getenv('AGENT_LLM_MODEL', '')}"
     if cache is not None:
         try:
             cached = cache.get(cache_key)

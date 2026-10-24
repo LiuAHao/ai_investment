@@ -25,7 +25,7 @@ from openai import OpenAI
 from agents import events
 from agents.loop import ReActLoop
 from agents.state import AgentResult, AgentTask, ToolResult
-from utils.llm_common import build_client, get_env
+from utils.llm_common import build_client, get_llm_model
 
 logger = logging.getLogger(__name__)
 
@@ -360,4 +360,4 @@ class BaseReActAgent:
     def _get_model(self) -> str:
         if self._model:
             return self._model
-        return get_env("AGENT_LLM_MODEL", "deepseek-chat")
+        return get_llm_model()

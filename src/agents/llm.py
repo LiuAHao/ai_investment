@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional
 from openai import OpenAI
 
 from agents.budget import Budget
-from utils.llm_common import build_client, get_env
+from utils.llm_common import build_client, get_llm_model
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ class LLM:
         cache: Optional[Any] = None,
         task_id: str = "",
     ):
-        self.model = model or get_env("AGENT_LLM_MODEL", "deepseek-chat")
+        self.model = model or get_llm_model()
         self.timeout = timeout
         self.temperature = temperature
         self.budget = budget

@@ -119,14 +119,10 @@ cd src/web && npm install && cd ../..
 编辑 `.env` 文件，填入有效的 API Key：
 
 ```bash
-# DeepSeek（推荐）或 OpenAI 二选一
-DEEPSEEK_API_KEY=sk-xxxxx
-DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
-DEEPSEEK_MODEL=deepseek-chat
-# 或
-OPENAI_API_KEY=sk-xxxxx
-OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_MODEL=gpt-4o-mini
+# 任意 OpenAI 兼容服务，统一使用 LLM_* 三个变量
+LLM_API_KEY=your-llm-api-key
+LLM_BASE_URL=https://api.deepseek.com/v1
+LLM_MODEL=deepseek-chat
 
 # Tushare 数据源（必需，行情/财务/宏观/基金均走 tushare）
 # 注册: https://tushare.pro ，首页个人主页获取 token

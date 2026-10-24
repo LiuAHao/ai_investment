@@ -203,7 +203,7 @@ def submit_query():
             session_id=session_id,
             query=query,
             source="agent",
-            model=os.getenv("AGENT_LLM_MODEL", ""),
+            model=os.getenv("LLM_MODEL", "") or os.getenv("AGENT_LLM_MODEL", ""),
         )
     except Exception:
         pass
