@@ -243,3 +243,150 @@ ai_investment/
 1. 保持用中文回答
 2. 若未说明生成说明和日志文档(.md),禁止生成说明和日志文档
 3. 若没有专门的测试文件夹或未说明生成测试代码,禁止生成测试代码
+
+测试例外：`tests/` 与 `src/web/src/**/__tests__/` 已存在，修改相关逻辑时应在这些目录补充或更新测试。
+
+## 提交与推送规范
+
+本仓库为开源项目。以下规则长期有效，所有提交与推送默认遵守。
+
+### 1. 基本原则
+
+- `main` 始终保持可运行、可构建、可发布。
+- 一次提交只做一件事：功能、修复、重构、文档不要混在一起。
+- 不提交任何密钥、用户数据、运行日志、数据库、行情缓存、个人配置。
+- 推送前必须完成本地验证；未验证的代码不进入 `main`。
+- 不直接修改已推送的历史；需要改写历史时按第 8 节处理。
+
+### 2. 提交前检查
+
+```bash
+git status --short
+git diff --cached --name-only | rg '(^\.env$|sessions\.json|\.sqlite|\.db$|^logs/|quant_cache|\.commandcode/|docs/archive/|^src/stock/|^--full-page$)'
+git diff --cached --check
+git diff --cached --stat
+```
+
+敏感值扫描（只确认是否命中，不打印命中内容）：
+
+```bash
+rg -n --hidden -g '!.git' -g '!*.sqlite' -g '!.env' \
+  'sk-[A-Za-z0-9]{16,}|APCA-API-KEY|ALPACA_API_KEY=[A-Za-z0-9]|TUSHARE_TOKEN=[A-Za-z0-9]' .
+```
+
+大文件检查（单文件超过 1MB 需在提交说明中解释，超过 10MB 禁止提交）：
+
+```bash
+git diff --cached --name-only | xargs -I{} du -k "{}" | awk '$1>1024'
+```
+
+### 3. 禁止提交清单
+
+以下内容只保留在本地，不进入 Git：
+
+- `.env`、任何真实密钥、Token、数据库连接串
+- `src/data/sessions.json`
+- `src/data/*.sqlite`、`*.db`、`ai_investment.db`
+- `logs/`
+- `src/data/quant_cache/`
+- `src/data/capabilities.json`
+- `.commandcode/`
+- `docs/archive/`
+- `src/stock/`（akshare 时代遗留，含第三方文档）
+- `--full-page` 等临时截图
+- `node_modules/`、`dist/`、`__pycache__/`
+
+`.env.example` 可以提交，但只能包含占位值，例如 `your-deepseek-api-key`。
+
+### 4. 推送前验证
+
+后端：
+
+```bash
+PYTHONPATH=src .venv/bin/python -m pytest tests -q
+PYTHONPATH=src .venv/bin/python -c "from api.main import create_app; create_app()"
+```
+
+前端：
+
+```bash
+cd src/web
+npm test -- --run
+npm run build
+```
+
+只改文档时，至少运行 `git diff --check`，并确认没有夹带代码改动。
+
+### 5. 分支命名
+
+- 功能：`feat/<short-name>`
+- 修复：`fix/<short-name>`
+- 重构：`refactor/<short-name>`
+- 文档：`docs/<short-name>`
+- 实验：`exp/<short-name>`，不合并到 `main`
+
+单人开发允许直接提交 `main`，但必须通过第 2、4 节检查。多人协作或大范围重构使用分支 + Pull Request。
+
+### 6. Commit message
+
+格式：
+
+```text
+<type>(<scope>): <subject>
+
+<body>
+
+<footer>
+```
+
+`type` 取值：`feat`、`fix`、`refactor`、`perf`、`docs`、`test`、`chore`、`build`、`ci`、`revert`。
+
+`scope` 取值：`agents`、`analysts`、`pipeline`、`tools`、`data`、`web`、`obs`、`quant`、`backtest`、`docs`、`deps`。
+
+要求：
+
+- `subject` 不超过 50 个字符，祈使句，结尾不加句号。
+- `body` 说明为什么改、改了什么、有什么影响；每行不超过 72 个字符。
+- 破坏性变更在 footer 写 `BREAKING CHANGE: ...`。
+- 关联 issue 写 `Refs #123`。
+- 不写“update”“fix bug”“修改一下”这类无信息量的 subject。
+
+示例：
+
+```text
+feat(pipeline): 增加按争议度触发辩论
+
+多空双方各有 3 条以上论点时至少执行 1 轮，
+争议度只决定 1 轮还是 2 轮。
+
+Refs #42
+```
+
+### 7. 推送
+
+- 推送前确认 `git status` 干净，暂存区只包含预期文件。
+- 推送命令：`git push origin main` 或 `git push origin <branch>`。
+- 不使用 `git push --force` 覆盖正常提交；需要撤销已推送提交时使用 `git revert`。
+- 推送后确认远端 HEAD 与本地一致：`git ls-remote origin refs/heads/main`。
+
+### 8. 密钥泄漏与历史改写
+
+发现密钥、用户数据或数据库进入 Git 后：
+
+1. 立即轮换对应密钥，不要只删文件。
+2. 备份仓库：`git bundle create ../backup-$(date +%Y%m%d).bundle --all`。
+3. 使用 `git filter-repo` 从全部历史移除敏感路径。
+4. 强制推送并通知所有协作者重新 clone。
+5. 若仓库曾公开，视密钥已泄漏处理：轮换是唯一有效补救。
+
+历史改写属于不可逆操作，执行前必须备份并确认影响范围。
+
+### 9. 版本与发布
+
+- 里程碑使用语义化版本标签：`v4.0.0`、`v4.1.0`、`v4.1.1`。
+- 发布说明从 commit 历史整理，至少包含：新增、修复、破坏性变更、升级步骤。
+- 依赖升级单独提交，不与业务改动混合。
+
+### 10. 提交信息中的 AI 协作
+
+使用 AI 辅助生成的提交，按工具要求在 commit message 末尾保留协作声明。协作者应在提交前自行复核内容、密钥与测试结果。
