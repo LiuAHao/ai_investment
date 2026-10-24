@@ -1,0 +1,4 @@
+{"asset_id": "fund:000001", "asset_type": "fund", "symbol": "000001", "name": "华夏成长混合", "market": "CN", "exchange": "", "aliases": [], "currency": "CNY", "fund_type": "混合型"}
+{"asset_id": "fund:110011", "asset_type": "fund", "symbol": "110011", "name": "易方达中小盘混合", "market": "CN", "exchange": "", "aliases": [], "currency": "CNY", "fund_type": "混合型"}
+{"asset_id": "fund:161725", "asset_type": "fund", "symbol": "161725", "name": "招商中证白酒指数", "market": "CN", "exchange": "", "aliases": ["白酒基金"], "currency": "CNY", "fund_type": "指数型"}
+{"asset_id": "fund:012414", "asset_type": "fund", "symbol": "012414", "name": "东方红启东三年持有", "market": "CN", "exchange": "", "aliases": [], "currency": "CNY", "fund_type": "混合型"}

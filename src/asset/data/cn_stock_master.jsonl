@@ -1,0 +1,10 @@
+{"asset_id": "cn_stock:300750", "asset_type": "cn_stock", "symbol": "300750", "name": "宁德时代", "market": "CN", "exchange": "SZSE", "aliases": ["宁王", "CATL"], "currency": "CNY"}
+{"asset_id": "cn_stock:600519", "asset_type": "cn_stock", "symbol": "600519", "name": "贵州茅台", "market": "CN", "exchange": "SSE", "aliases": ["茅台"], "currency": "CNY"}
+{"asset_id": "cn_stock:000858", "asset_type": "cn_stock", "symbol": "000858", "name": "五粮液", "market": "CN", "exchange": "SZSE", "aliases": [], "currency": "CNY"}
+{"asset_id": "cn_stock:601318", "asset_type": "cn_stock", "symbol": "601318", "name": "中国平安", "market": "CN", "exchange": "SSE", "aliases": ["平安"], "currency": "CNY"}
+{"asset_id": "cn_stock:000001", "asset_type": "cn_stock", "symbol": "000001", "name": "平安银行", "market": "CN", "exchange": "SZSE", "aliases": [], "currency": "CNY"}
+{"asset_id": "cn_stock:600036", "asset_type": "cn_stock", "symbol": "600036", "name": "招商银行", "market": "CN", "exchange": "SSE", "aliases": ["招行"], "currency": "CNY"}
+{"asset_id": "cn_stock:000333", "asset_type": "cn_stock", "symbol": "000333", "name": "美的集团", "market": "CN", "exchange": "SZSE", "aliases": ["美的"], "currency": "CNY"}
+{"asset_id": "cn_stock:601012", "asset_type": "cn_stock", "symbol": "601012", "name": "隆基绿能", "market": "CN", "exchange": "SSE", "aliases": ["隆基"], "currency": "CNY"}
+{"asset_id": "cn_stock:002594", "asset_type": "cn_stock", "symbol": "002594", "name": "比亚迪", "market": "CN", "exchange": "SZSE", "aliases": ["BYD"], "currency": "CNY"}
+{"asset_id": "cn_stock:600900", "asset_type": "cn_stock", "symbol": "600900", "name": "长江电力", "market": "CN", "exchange": "SSE", "aliases": [], "currency": "CNY"}

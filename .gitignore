@@ -1,0 +1,70 @@
+## OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+## Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+*.log
+.env
+.venv/
+venv/
+ENV/
+env/
+
+## Node / Frontend
+node_modules/
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+dist/
+build/
+.cache/
+.parcel-cache/
+.vite/
+
+## VS Code
+.vscode/
+
+## Database
+*.db
+*.sqlite
+*.sqlite3
+
+## Misc
+*.local
+*.tmp
+*.swp
+*.swo
+
+## 运行期数据（含用户问题、研报、回测结果，不入库）
+src/data/sessions.json
+src/data/sessions.json.*.tmp
+src/data/decisions.sqlite
+src/data/llm_cache.sqlite
+src/data/backtest.sqlite
+src/data/capabilities.json
+src/data/quant_cache/
+logs/
+src/data/observability.sqlite
+
+## 开源前新增：个人配置 / 归档资料 / 第三方文档 / 截图
+.commandcode/
+docs/archive/
+src/stock/
+--full-page
